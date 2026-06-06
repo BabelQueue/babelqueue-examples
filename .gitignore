@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Go
+/**/consumer-go/consumer-go
+*.out
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
