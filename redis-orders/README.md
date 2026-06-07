@@ -30,7 +30,7 @@ cd ..
 ```
 
 ```bash
-# 2b) producer — PHP   (needs babelqueue/php-sdk >= 0.3, which ships RedisTransport)
+# 2b) producer — PHP   (needs babelqueue/php-sdk ^1.0, which ships RedisTransport)
 cd producer-php
 composer install
 php produce.php

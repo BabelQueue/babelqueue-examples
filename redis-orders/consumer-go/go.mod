@@ -3,8 +3,8 @@ module github.com/babelqueue/babelqueue-examples/redis-orders/consumer-go
 go 1.21
 
 require (
-	github.com/babelqueue/babelqueue-go v0.2.0
-	github.com/babelqueue/babelqueue-go/redis v0.1.0
+	github.com/babelqueue/babelqueue-go v1.0.0
+	github.com/babelqueue/babelqueue-go/redis v1.0.0
 )
 
 require (

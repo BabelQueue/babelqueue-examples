@@ -5,7 +5,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "babelqueue/php-sdk": "^0.3",
+        "babelqueue/php-sdk": "^1.0",
         "predis/predis": "^2.2"
     },
     "config": {

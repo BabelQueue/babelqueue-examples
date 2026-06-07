@@ -1,7 +1,7 @@
-github.com/babelqueue/babelqueue-go v0.2.0 h1:JmTb5mUxLo9UJUaAD1kZHYM0SYDn/79TrntBTcymI9s=
-github.com/babelqueue/babelqueue-go v0.2.0/go.mod h1:OVfRiVo6bH8KixMYT8dp+Zv/jIci3wn4gF/mcd+3Yqs=
-github.com/babelqueue/babelqueue-go/redis v0.1.0 h1:PtEvTlWSJclIWZVSfW6kFU6EtKYC1+6n6qhSLUEdLi4=
-github.com/babelqueue/babelqueue-go/redis v0.1.0/go.mod h1:cxyxAieZ23n/qVMFNl6QzTtADMq+we2JfbUhUiWvjdA=
+github.com/babelqueue/babelqueue-go v1.0.0 h1:4zYp252PXs78N+fVR3jL2M1Yet4aXLpLtUnPgPmVmKw=
+github.com/babelqueue/babelqueue-go v1.0.0/go.mod h1:OVfRiVo6bH8KixMYT8dp+Zv/jIci3wn4gF/mcd+3Yqs=
+github.com/babelqueue/babelqueue-go/redis v1.0.0 h1:ietR6f/lA/WwCryKK5HrlCnnFTBz26BgNYQsRakZYjo=
+github.com/babelqueue/babelqueue-go/redis v1.0.0/go.mod h1:K+Dvn/4V7weyqgCzUWUPVEw1gxmzp7Ih21WxkKdafDM=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
