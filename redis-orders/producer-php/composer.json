@@ -1,0 +1,16 @@
+{
+    "name": "babelqueue/example-redis-orders-producer-php",
+    "description": "PHP producer for the BabelQueue cross-language Redis demo (PHP -> Go).",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "babelqueue/php-sdk": "^0.3",
+        "predis/predis": "^2.2"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

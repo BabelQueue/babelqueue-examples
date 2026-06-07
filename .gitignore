@@ -7,6 +7,10 @@ __pycache__/
 /**/consumer-go/consumer-go
 *.out
 
+# PHP
+/**/vendor/
+composer.lock
+
 # OS / editor
 .DS_Store
 .idea/
