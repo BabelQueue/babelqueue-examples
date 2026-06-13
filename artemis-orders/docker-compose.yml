@@ -1,0 +1,21 @@
+# Apache ActiveMQ Artemis — a multi-protocol broker for the demo. Java produces over JMS
+# (the CORE protocol on 61616); Python consumes over AMQP 1.0 (5672). Artemis bridges the
+# two protocols on the same "orders" address, which is the whole point: one envelope, two
+# protocols, two languages.
+services:
+  artemis:
+    image: apache/activemq-artemis:2.37.0
+    environment:
+      ARTEMIS_USER: artemis
+      ARTEMIS_PASSWORD: artemis
+      # Allow anonymous AMQP/CORE logins so the demo needs no per-client credentials wiring.
+      ANONYMOUS_LOGIN: "true"
+    ports:
+      - "61616:61616"   # CORE (JMS, Java producer)
+      - "5672:5672"     # AMQP 1.0 (Python consumer)
+      - "8161:8161"     # web console (http://localhost:8161, artemis/artemis)
+    healthcheck:
+      test: ["CMD-SHELL", "/var/lib/artemis-instance/bin/artemis check node --up --user artemis --password artemis || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
