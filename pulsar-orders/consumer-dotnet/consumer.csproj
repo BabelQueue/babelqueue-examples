@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PulsarOrders.Consumer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The Apache Pulsar transport on the framework-agnostic .NET core. It pulls
+         BabelQueue.Core and DotPulsar transitively. -->
+    <PackageReference Include="BabelQueue.Pulsar" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>

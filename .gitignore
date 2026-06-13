@@ -11,6 +11,13 @@ __pycache__/
 /**/vendor/
 composer.lock
 
+# Java
+/**/target/
+
+# .NET
+/**/bin/
+/**/obj/
+
 # OS / editor
 .DS_Store
 .idea/

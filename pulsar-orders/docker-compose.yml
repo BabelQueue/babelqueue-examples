@@ -1,0 +1,15 @@
+# Apache Pulsar standalone — a single-node broker for the demo. Exposes the binary
+# protocol (6650) the SDKs connect to and the admin/HTTP port (8080).
+services:
+  pulsar:
+    image: apachepulsar/pulsar:3.3.5
+    command: bin/pulsar standalone
+    ports:
+      - "6650:6650"
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "bin/pulsar-admin", "brokers", "healthcheck"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
