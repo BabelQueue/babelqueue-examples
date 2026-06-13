@@ -1,0 +1,1 @@
+babelqueue[amqp]>=1.0.0

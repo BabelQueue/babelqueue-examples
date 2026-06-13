@@ -1,0 +1,13 @@
+{
+  "name": "babelqueue-rabbitmq-orders-consumer",
+  "private": true,
+  "type": "module",
+  "description": "Node consumer for the rabbitmq-orders demo — reads the canonical BabelQueue envelopes a Python service produced to RabbitMQ and routes by URN.",
+  "scripts": {
+    "start": "node consume.mjs"
+  },
+  "dependencies": {
+    "@babelqueue/rabbitmq": "^1.0.0",
+    "amqplib": "^0.10.0"
+  }
+}

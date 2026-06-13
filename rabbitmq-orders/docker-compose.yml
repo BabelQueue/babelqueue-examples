@@ -1,0 +1,13 @@
+# RabbitMQ — the broker for the demo. AMQP 0-9-1 on 5672, the management UI on 15672
+# (guest/guest at http://localhost:15672). The healthcheck waits until the node answers a ping.
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12

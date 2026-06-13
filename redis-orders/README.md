@@ -1,11 +1,11 @@
-# Redis orders — Python *or* PHP produces, Go consumes
+# Redis orders — Python *or* PHP produces, Go *or* Java consumes
 
-A producer publishes canonical BabelQueue envelopes to a Redis queue; a **Go**
-service reads the *same* queue and routes by URN. Same wire envelope, different
-languages, one broker — no PHP `serialize()`, no language-specific format. The
-producer can be **Python** or **PHP** (or any SDK) — the Go consumer doesn't know
-or care which one wrote the message; it only sees the canonical envelope and
-`meta.lang`.
+A producer publishes canonical BabelQueue envelopes to a Redis queue; a **Go** or
+**Java** service reads the *same* queue and routes by URN. Same wire envelope,
+different languages, one broker — no PHP `serialize()`, no language-specific
+format. The producer can be **Python** or **PHP** (or any SDK) — the consumer
+doesn't know or care which one wrote the message; it only sees the canonical
+envelope and `meta.lang`.
 
 Every SDK uses the identical reliable-queue pattern (`RPUSH` to produce, `BLMOVE`
 to a `:processing` list to reserve, `LREM` to ack), so they interoperate on the
@@ -37,8 +37,10 @@ php produce.php
 cd ..
 ```
 
+Then run **one** consumer:
+
 ```bash
-# 3) consumer — Go
+# 3a) consumer — Go
 cd consumer-go
 go run .
 ```
@@ -54,6 +56,37 @@ Expected consumer output — a Go program reading messages it never produced. No
 [go] processed 3 message(s) — same envelope, different language.
 ```
 
+```bash
+# 3b) consumer — Java   (needs babelqueue-redis 1.0.0 — once it lands on Maven
+#     Central this resolves automatically; before then, build it into ~/.m2 with
+#     `mvn -f ../../../babelqueue-java/pom.xml install -DskipTests` then
+#     `mvn -f ../../../babelqueue-java-redis/pom.xml install -DskipTests`)
+cd consumer-java
+mvn -q compile exec:java          # REDIS_URL env-configurable (default redis://localhost:6379/0)
+```
+
+## Proven: PHP produces → Java consumes (live, over a real Redis)
+
+The Java consumer (`consumer-java/`) reserves with `BLMOVE orders orders:processing`
+and acks with `LREM` — the identical §1 reliable-queue convention the PHP producer's
+`RPUSH` feeds. Running the PHP producer (`producer-php/produce-shipped.php`, 3×
+`orders:created` + 1× `orders:shipped`, `lang=php`) and then `mvn -q compile exec:java`
+captured this — a **Java** program reading messages a **PHP** SDK wrote, routed by URN,
+with the producer's `lang`, intact data (note the unicode carrier) and preserved
+`trace_id` surviving the language boundary:
+
+```
+[java] orders:created  order_id=1042  amount=99.9 USD  from lang=php  trace=dd3e7352-8242-4dc5-8d8f-e9163f185cc9
+[java] orders:created  order_id=1043  amount=12.5 EUR  from lang=php  trace=3c046f11-868b-432c-bc90-62d909584a93
+[java] orders:created  order_id=1044  amount=7.25 GBP  from lang=php  trace=e3fb4277-4aca-4844-9c10-c43d93171c58
+[java] orders:shipped  order_id=1042  carrier=DHL Express ✈  from lang=php  trace=b9cf2f99-9ba9-4206-81a8-44611c7f97d8
+[java] processed 4 message(s) — same envelope, different language.
+```
+
+After the run both `orders` and `orders:processing` are empty (`LLEN` = 0): every
+message was reserved and acked. The Redis list element **is** the raw canonical
+envelope — no wrapping, no PHP `serialize()`.
+
 ## Swap the ends
 
 The queue carries the canonical envelope, so any SDK can be on either side:
@@ -63,6 +96,8 @@ The queue carries the canonical envelope, so any SDK can be on either side:
 - **Go producer:** `babelqueue.Make(...)` + `transport.Publish(...)`, or build the
   same `App` and call `app.Publish(...)`.
 - **Python consumer:** `@app.handler("urn:...")` + `app.run()`.
+- **Java consumer:** `RedisConsumer.builder(redis, "orders").handler("urn:...", h).poll()`
+  / `.run()` (Lettuce), as in `consumer-java/` above.
 
-Node, Java and .NET read/write the identical envelope on their own framework
+Node and .NET read/write the identical envelope on their own framework
 transports — see [babelqueue.com](https://babelqueue.com).

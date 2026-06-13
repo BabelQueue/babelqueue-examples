@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.babelqueue.examples</groupId>
+    <artifactId>redis-orders-consumer-java</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Redis orders — Java consumer</name>
+    <description>
+        Java consumer for the BabelQueue cross-language Redis demo: reads the
+        canonical envelopes a non-Java producer (PHP/Python) put on the shared
+        "orders" Redis list and routes each by URN.
+    </description>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <exec.mainClass>Consume</exec.mainClass>
+    </properties>
+
+    <dependencies>
+        <!-- The Redis transport on the framework-agnostic Java core. Pulls
+             babelqueue-core + Lettuce transitively. Resolves from local ~/.m2
+             today and from Maven Central once 1.0.0 is tagged/published. -->
+        <dependency>
+            <groupId>com.babelqueue</groupId>
+            <artifactId>babelqueue-redis</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <!-- `mvn -q compile exec:java` runs the consumer. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>${exec.mainClass}</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

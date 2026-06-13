@@ -22,3 +22,6 @@ composer.lock
 .DS_Store
 .idea/
 .vscode/
+
+# CommitBrief local config and cache
+.commitbrief/
