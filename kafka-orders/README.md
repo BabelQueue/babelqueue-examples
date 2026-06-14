@@ -1,11 +1,12 @@
-# Kafka orders — Java and PHP produce, Go consumes
+# Kafka orders — Java · PHP produce, Go · PHP consume
 
 A **Java** producer *or* a **PHP** producer publishes canonical BabelQueue envelopes to an
-Apache Kafka topic; a **Go** service reads the *same* topic and routes by URN. Same wire
-envelope, different languages, one broker — no PHP `serialize()`, no language-specific format.
-The Go consumer never knows which language wrote the record; it only sees the canonical
-envelope and `meta.lang`. PHP reaches Kafka over **`ext-rdkafka`** (the only mature PHP Kafka
-client — an opt-in transport, [ADR-0019](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-kafka)).
+Apache Kafka topic; a **Go** service *or* a **PHP** service reads the *same* topic and routes by
+URN. Same wire envelope, different languages, one broker — no PHP `serialize()`, no
+language-specific format. A consumer never knows which language wrote the record; it only sees the
+canonical envelope and `meta.lang`. PHP reaches Kafka — both **produce and consume** — over
+**`ext-rdkafka`** (the only mature PHP Kafka client — an opt-in, GR-7-relaxed path,
+[ADR-0019](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-kafka)).
 
 Each SDK uses the [§6 Kafka binding](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-kafka):
 the record **value** is the envelope JSON, the contract fields are mirrored onto `bq-` record
@@ -37,9 +38,13 @@ cd producer-php && composer install && php produce.php
 ```
 
 ```bash
-# 3) consumer — Go   (needs babelqueue-go/kafka ^1.0)
-cd consumer-go
-go run .
+# 3) consumer — pick one (both read the same topic, route by URN)
+
+# Go   (needs babelqueue-go/kafka ^1.0)
+cd consumer-go && go run .
+
+# …or PHP over ext-rdkafka, process-then-commit   (needs babelqueue/php-sdk ^1.6 + the ext-rdkafka extension)
+cd consumer-php && composer install && php consume.php
 ```
 
 The Go consumer (a new group reads from the earliest offset) prints each order as it routes
@@ -72,6 +77,17 @@ default `20`) are configurable via env vars.
   `bq-attempts` (Kafka has no native delivery count; the header is the home).
 - **Process-then-commit.** The Go consumer commits the offset only after the handler returns
   (at-least-once).
+- **PHP consumes too — produce *and* consume over `ext-rdkafka`.** PHP's `KafkaConsumer` reads a
+  **Java**-produced record, routes it by URN (`from lang=java`), takes `attempts` from the
+  authoritative `bq-attempts` header, and commits the offset only after the handler succeeds
+  (process-then-commit) — proven live:
+
+  ```
+  [php] urn:babel:orders:created   data={"amount":19.99,"order_id":1001}  from lang=java  attempts=0
+  [php] urn:babel:orders:created   data={"amount":39.98,"order_id":1002}  from lang=java  attempts=0
+  [php] urn:babel:orders:created   data={"amount":59.97,"order_id":1003}  from lang=java  attempts=0
+  [php] urn:babel:orders:shipped   data={"carrier":"DHL","order_id":1002}  from lang=java  attempts=0
+  ```
 
 ## Cleanup
 
