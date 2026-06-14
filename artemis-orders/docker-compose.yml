@@ -12,6 +12,7 @@ services:
       ANONYMOUS_LOGIN: "true"
     ports:
       - "61616:61616"   # CORE (JMS, Java producer)
+      - "61613:61613"   # STOMP (PHP producer)
       - "5672:5672"     # AMQP 1.0 (Python consumer)
       - "8161:8161"     # web console (http://localhost:8161, artemis/artemis)
     healthcheck:

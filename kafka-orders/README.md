@@ -1,10 +1,11 @@
-# Kafka orders — Java produces, Go consumes
+# Kafka orders — Java and PHP produce, Go consumes
 
-A **Java** producer publishes canonical BabelQueue envelopes to an Apache Kafka topic; a
-**Go** service reads the *same* topic and routes by URN. Same wire envelope, different
-languages, one broker — no PHP `serialize()`, no language-specific format. The Go consumer
-never knows which language wrote the record; it only sees the canonical envelope and
-`meta.lang`.
+A **Java** producer *or* a **PHP** producer publishes canonical BabelQueue envelopes to an
+Apache Kafka topic; a **Go** service reads the *same* topic and routes by URN. Same wire
+envelope, different languages, one broker — no PHP `serialize()`, no language-specific format.
+The Go consumer never knows which language wrote the record; it only sees the canonical
+envelope and `meta.lang`. PHP reaches Kafka over **`ext-rdkafka`** (the only mature PHP Kafka
+client — an opt-in transport, [ADR-0019](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-kafka)).
 
 Each SDK uses the [§6 Kafka binding](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-kafka):
 the record **value** is the envelope JSON, the contract fields are mirrored onto `bq-` record
@@ -26,9 +27,13 @@ docker compose exec redpanda rpk topic create orders   # create the work topic
 ```
 
 ```bash
-# 2) producer — Java   (needs com.babelqueue:babelqueue-kafka ^1.0)
-cd producer-java
-mvn compile exec:java
+# 2) producer — pick one (both emit byte-identical envelopes)
+
+# Java   (needs com.babelqueue:babelqueue-kafka ^1.0)
+cd producer-java && mvn compile exec:java
+
+# …or PHP   (needs babelqueue/php-sdk ^1.3 + the ext-rdkafka extension)
+cd producer-php && composer install && php produce.php
 ```
 
 ```bash
@@ -38,23 +43,27 @@ go run .
 ```
 
 The Go consumer (a new group reads from the earliest offset) prints each order as it routes
-it by URN:
+it by URN. Producing from **PHP** (`lang=php`), the Go side reads the same shape it reads from
+Java — proven live over Redpanda:
 
 ```
-[go] orders:created  order_id=1001  amount=19.99  from lang=java  trace=…  attempts=0
-[go] orders:created  order_id=1002  amount=39.98  from lang=java  trace=…  attempts=0
-[go] orders:created  order_id=1003  amount=59.97  from lang=java  trace=…  attempts=0
-[go] orders:shipped  order_id=1002  carrier=DHL    from lang=java
+[go] orders:created  order_id=3001  amount=19.99  from lang=php  trace=769c9e53-…  attempts=0
+[go] orders:created  order_id=3002  amount=39.98  from lang=php  trace=f70c10dc-…  attempts=0
+[go] orders:created  order_id=3003  amount=59.97  from lang=php  trace=6dfb4fe6-…  attempts=0
+[go] orders:shipped  order_id=3002  carrier=DHL Express ✈  from lang=php
 ```
+
+(Run `producer-java` instead and the same consumer prints `from lang=java` — the consumer
+code is identical; only `meta.lang` differs.)
 
 `KAFKA_BROKERS` (both sides, default `localhost:9092`) and `CONSUME_SECONDS` (consumer,
 default `20`) are configurable via env vars.
 
 ## What this proves
 
-- **One envelope, two languages.** Java's `KafkaPublisher` and Go's `kafka.Transport` agree
-  on the byte-identical envelope value and the §6 `bq-` header projection — this is the
-  binding's reference parity pair (Java → Go).
+- **One envelope, three languages.** Java's `KafkaPublisher`, PHP's `KafkaTransport`
+  (`ext-rdkafka`) and Go's `kafka.Transport` agree on the byte-identical envelope value and the
+  §6 `bq-` header projection — Java **or** PHP can produce, Go reads either unchanged.
 - **URN routing without decoding.** The consumer routes on the `bq-job` header
   (`urn:babel:orders:created` vs `urn:babel:orders:shipped`); it never parses a record it has
   no handler for.

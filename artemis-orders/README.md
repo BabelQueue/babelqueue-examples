@@ -1,4 +1,4 @@
-# Artemis orders — Java (JMS) produces, Python (AMQP 1.0) consumes
+# Artemis orders — Java (JMS) · PHP (STOMP) produce, Python (AMQP 1.0) consumes
 
 A **Java** producer publishes canonical BabelQueue envelopes to an Apache ActiveMQ **Artemis**
 address over **JMS** (the CORE protocol); a **Python** service reads the *same* address over
@@ -32,25 +32,36 @@ mvn compile exec:java
 ```
 
 ```bash
+# 2b) producer — PHP over STOMP   (needs babelqueue/php-sdk ^1.1 + stomp-php ^5; §7 STOMP path)
+cd producer-php-stomp
+composer install
+php produce.php
+```
+
+```bash
 # 3) consumer — Python   (needs babelqueue[artemis] ^1.5)
+#    Start the consumer FIRST (it creates the anycast 'orders' queue), then run a producer.
 cd consumer-python
 python -m venv .venv && . .venv/bin/activate
 pip install "babelqueue[artemis]"
 python consume.py
 ```
 
-The Python consumer reads the four messages Java produced and routes each by URN:
+The Python (AMQP 1.0) consumer reads the messages a producer sent — over **JMS** *or* **STOMP** —
+and routes each by URN. Running the **PHP STOMP** producer:
 
 ```
-[python] orders:created  order_id=1001  amount=19.99  from lang=java
-[python] orders:created  order_id=1002  amount=39.98  from lang=java
-[python] orders:created  order_id=1003  amount=59.97  from lang=java
-[python] orders:shipped  order_id=1002  carrier=DHL  from lang=java
+[python] orders:created  order_id=2001  amount=19.99  from lang=php
+[python] orders:created  order_id=2002  amount=39.98  from lang=php
+[python] orders:created  order_id=2003  amount=59.97  from lang=php
+[python] orders:shipped  order_id=2002  carrier=DHL Express ✈  from lang=php
 [python] done — consumed 4 message(s).
 ```
 
-`ARTEMIS_URL` is configurable on both sides: the Java producer defaults to
-`tcp://localhost:61616` (CORE/JMS), the Python consumer to `artemis://localhost:5672` (AMQP 1.0).
+PHP produced over **STOMP** (port 61613); Python consumed over **AMQP 1.0** (5672); Artemis bridged
+the two protocols on the same `orders` address. The PHP `StompTransport` (§7 STOMP path) sets the
+envelope body + `correlation-id` (= `trace_id`) + the `bq_` headers; routing is body-authoritative
+(the URN rides the body's `job`). `ARTEMIS_URL` / `ARTEMIS_STOMP` are env-configurable.
 
 ## What this proves
 
