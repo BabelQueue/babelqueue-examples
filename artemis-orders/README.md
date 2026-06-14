@@ -1,10 +1,11 @@
-# Artemis orders — Java (JMS) · PHP (STOMP) produce, Python (AMQP 1.0) consumes
+# Artemis orders — Java (JMS) · PHP (STOMP) produce, Python (AMQP 1.0) · Laravel (STOMP) consume
 
 A **Java** producer publishes canonical BabelQueue envelopes to an Apache ActiveMQ **Artemis**
 address over **JMS** (the CORE protocol); a **Python** service reads the *same* address over
-**AMQP 1.0** and routes by URN. Same wire envelope, **two protocols**, two languages, one broker —
-no PHP `serialize()`, no language-specific format. Python never knows which language (or protocol)
-wrote a message; it sees only the canonical envelope and `meta.lang`.
+**AMQP 1.0**, and a **Laravel** worker reads it over **STOMP** — each routes by URN. Same wire
+envelope, **three protocols**, multiple languages, one broker — no PHP `serialize()`, no
+language-specific format. A consumer never knows which language (or protocol) wrote a message; it
+sees only the canonical envelope and `meta.lang`.
 
 This is the cross-protocol proof at the heart of the
 [§7 Artemis binding](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-activemq-artemis):
@@ -39,29 +40,36 @@ php produce.php
 ```
 
 ```bash
-# 3) consumer — Python   (needs babelqueue[artemis] ^1.5)
-#    Start the consumer FIRST (it creates the anycast 'orders' queue), then run a producer.
+# 3) consumer — pick one (both read the same 'orders' address, each over its own protocol)
+
+# Python over AMQP 1.0   (needs babelqueue[artemis] ^1.5)
+#   Start it FIRST (it creates the anycast 'orders' queue), then run a producer.
 cd consumer-python
 python -m venv .venv && . .venv/bin/activate
 pip install "babelqueue[artemis]"
 python consume.py
+
+# …or Laravel over STOMP   (needs babelqueue/laravel ^1.2 + stomp-php ^5; the babelqueue-artemis driver)
+cd consumer-laravel && composer install && php consume.php
 ```
 
-The Python (AMQP 1.0) consumer reads the messages a producer sent — over **JMS** *or* **STOMP** —
-and routes each by URN. Running the **PHP STOMP** producer:
+A consumer reads the messages a producer sent — over **JMS** *or* **STOMP** — and routes each by
+URN. Producing from **Java (JMS)** and consuming with the **Laravel STOMP driver** (proven live):
 
 ```
-[python] orders:created  order_id=2001  amount=19.99  from lang=php
-[python] orders:created  order_id=2002  amount=39.98  from lang=php
-[python] orders:created  order_id=2003  amount=59.97  from lang=php
-[python] orders:shipped  order_id=2002  carrier=DHL Express ✈  from lang=php
-[python] done — consumed 4 message(s).
+[laravel] urn:babel:orders:created   data={"order_id":1001,"amount":19.99}  from lang=java  trace=…  attempts=1
+[laravel] urn:babel:orders:created   data={"order_id":1002,"amount":39.98}  from lang=java  trace=…  attempts=1
+[laravel] urn:babel:orders:created   data={"order_id":1003,"amount":59.97}  from lang=java  trace=…  attempts=1
+[laravel] urn:babel:orders:shipped   data={"order_id":1002,"carrier":"DHL"}  from lang=java  trace=…  attempts=1
+[laravel] done — consumed 4 message(s), all ACKed.
 ```
 
-PHP produced over **STOMP** (port 61613); Python consumed over **AMQP 1.0** (5672); Artemis bridged
-the two protocols on the same `orders` address. The PHP `StompTransport` (§7 STOMP path) sets the
-envelope body + `correlation-id` (= `trace_id`) + the `bq_` headers; routing is body-authoritative
-(the URN rides the body's `job`). `ARTEMIS_URL` / `ARTEMIS_STOMP` are env-configurable.
+Java produced over **JMS** (CORE, 61616); Laravel consumed over **STOMP** (61613); Artemis bridged
+the protocols on the same `orders` address. The Laravel `babelqueue-artemis` driver subscribes with
+`client-individual` ack, routes **body-authoritatively** on the envelope's `job` URN (§7.8), and
+ACKs each message via `delete()` — in a real app it is a drop-in `php artisan queue:work
+babelqueue-artemis` (see `consumer-laravel/consume.php`). `ARTEMIS_URL` / `ARTEMIS_STOMP` /
+`ARTEMIS_STOMP_PORT` are env-configurable.
 
 ## What this proves
 
@@ -75,6 +83,10 @@ envelope body + `correlation-id` (= `trace_id`) + the `bq_` headers; routing is 
   `correlation-id`) survives the protocol hop unchanged.
 - **The body is authoritative.** Python reads `meta.lang=java`, `order_id`, `amount`, `carrier`
   straight from the byte-identical envelope body — the `bq_` properties are a redundant view.
+- **PHP consumes too — three protocols on one address.** The Laravel `babelqueue-artemis` driver
+  reads a **Java(JMS)**-produced message over **STOMP** and routes it by URN (`from lang=java`):
+  Java↔JMS, Python↔AMQP 1.0 and Laravel↔STOMP all meet on the `orders` address. This is the §7
+  PHP **consume** half (the producer half is the `php-sdk` `StompTransport`).
 
 ## Cleanup
 

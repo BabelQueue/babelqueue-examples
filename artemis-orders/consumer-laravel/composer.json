@@ -1,0 +1,10 @@
+{
+    "name": "babelqueue/artemis-orders-consumer-laravel",
+    "description": "A Laravel queue worker consumes canonical BabelQueue envelopes from Apache Artemis over STOMP (the §7 babelqueue-artemis driver).",
+    "require": {
+        "php": ">=8.2",
+        "babelqueue/laravel": "^1.2",
+        "stomp-php/stomp-php": "^5.0"
+    },
+    "config": { "sort-packages": true }
+}
