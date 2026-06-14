@@ -1,11 +1,12 @@
-# Pulsar orders — Java and PHP produce, .NET consumes
+# Pulsar orders — Java · PHP produce, .NET · PHP consume
 
 A **Java** producer *or* a **PHP** producer publishes canonical BabelQueue envelopes to an
-Apache Pulsar topic; a **.NET** service reads the *same* topic and routes by URN. Same wire
-envelope, different languages, one broker — no PHP `serialize()`, no language-specific format.
-The .NET consumer never knows which language wrote the message; it only sees the canonical
-envelope and `meta.lang`. PHP reaches Pulsar over Pulsar's native **WebSocket API** (a pure-PHP
-client — no C extension; [ADR-0020](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-pulsar)).
+Apache Pulsar topic; a **.NET** service *or* a **PHP** service reads the *same* topic and routes by
+URN. Same wire envelope, different languages, one broker — no PHP `serialize()`, no
+language-specific format. A consumer never knows which language wrote the message; it only sees the
+canonical envelope and `meta.lang`. PHP reaches Pulsar — both **produce and consume** — over
+Pulsar's native **WebSocket API** (a pure-PHP client, no C extension;
+[ADR-0020](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-pulsar)).
 
 Each SDK uses the [§5 Pulsar binding](https://babelqueue.com/docs/spec/1.x/broker-bindings#apache-pulsar):
 the envelope is the message payload, projected onto native Pulsar message properties
@@ -25,12 +26,20 @@ docker compose up -d
 ```
 
 ```bash
-# 2) consumer — .NET   (needs BabelQueue.Pulsar ^1.0, which ships PulsarConsumer)
+# 2) consumer — pick one (both read the same topic, route by URN)
 #    Start it FIRST so its 'babelqueue' subscription exists before the producer publishes
 #    (a Shared subscription only receives messages sent after it is created).
-cd consumer-dotnet
-dotnet run
+
+# .NET   (needs BabelQueue.Pulsar ^1.0, the native client)
+cd consumer-dotnet && dotnet run
+
+# …or PHP over the WebSocket consumer API   (needs babelqueue/php-sdk ^1.5 + textalk/websocket)
+cd consumer-php && composer install && php consume.php
 ```
+
+> The PHP consumer uses a durable `babelqueue` subscription. If you produce *before* it first
+> connects, create the cursor at the start once:
+> `docker compose exec pulsar bin/pulsar-admin topics create-subscription persistent://public/default/orders -s babelqueue --messageId earliest`
 
 ```bash
 # 3) producer — pick one (both emit byte-identical envelopes + the same §5 properties)
@@ -73,6 +82,18 @@ env vars.
 - **Trace propagation.** Each message's `trace_id` survives the hop unchanged.
 - **`attempts` reconciliation.** A first delivery reads `attempts = 0`
   (`max(body, RedeliveryCount)`, and Pulsar's redelivery count is 0-based).
+- **PHP consumes too — produce *and* consume over WebSocket.** PHP's `PulsarConsumer` reads a
+  **Java(native)**-produced message over the WebSocket consumer API and routes it by URN
+  (`from lang=java`), reconciling `attempts` the same way — proven live:
+
+  ```
+  [php] urn:babel:orders:created   data={"amount":19.99,"order_id":1001}  from lang=java  attempts=0
+  [php] urn:babel:orders:created   data={"amount":39.98,"order_id":1002}  from lang=java  attempts=0
+  [php] urn:babel:orders:created   data={"amount":59.97,"order_id":1003}  from lang=java  attempts=0
+  [php] urn:babel:orders:shipped   data={"carrier":"DHL","order_id":1002}  from lang=java  attempts=0
+  ```
+
+  Pure-PHP WebSocket client (no C extension — GR-7 intact); ack via the WS ack frame.
 
 ## Cleanup
 
