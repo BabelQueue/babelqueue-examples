@@ -1,0 +1,30 @@
+{
+    "name": "babelqueue/example-outbox-initorm",
+    "description": "Transactional Outbox demo (ADR-0029): an InitORM-backed OutboxStore for the BabelQueue php-sdk — business write + message committed atomically, relayed later.",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "babelqueue/php-sdk": "^1.0",
+        "initorm/database": "^1.0 || ^2.0",
+        "predis/predis": "^2.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5 || ^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "BabelQueue\\Examples\\Outbox\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "BabelQueue\\Examples\\Outbox\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
