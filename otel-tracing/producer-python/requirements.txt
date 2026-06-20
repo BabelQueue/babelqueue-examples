@@ -1,0 +1,2 @@
+babelqueue[redis,otel]>=1.0.0
+opentelemetry-sdk>=1.20

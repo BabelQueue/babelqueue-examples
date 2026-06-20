@@ -5,6 +5,7 @@ __pycache__/
 
 # Go
 /**/consumer-go/consumer-go
+/**/producer-go/producer-go
 *.out
 
 # PHP

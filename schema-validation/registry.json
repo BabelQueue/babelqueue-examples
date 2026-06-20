@@ -1,0 +1,10 @@
+{
+  "schemas": [
+    {
+      "urn": "urn:babel:orders:created",
+      "schema": "schemas/orders-created.json",
+      "owner": "orders",
+      "status": "active"
+    }
+  ]
+}
