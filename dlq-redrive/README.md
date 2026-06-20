@@ -76,6 +76,7 @@ pip install -r requirements.txt
 python redrive.py                  # move every message back
 # python redrive.py --max 1        # move at most one
 # python redrive.py --keep-dead-letter   # leave the dead_letter block in place
+# python redrive.py --bypass       # replay, but skip side-effects that already fired (see below)
 ```
 
 ```
@@ -93,6 +94,70 @@ A `redis-orders` consumer (Go, Java, …) will then pick the message up unchange
 
 > Re-drive **after** the underlying fault is fixed, or the message will just fail
 > and dead-letter again.
+
+## Replay-bypass — re-drive without re-firing side-effects
+
+A re-drive is a **deliberate replay**: the handler runs again. That is exactly what
+you want for the *idempotent core* (save the order, re-index the item), but a
+message often also did something **external and non-idempotent** before it failed —
+charged a card, sent a confirmation email, called a third party. Replaying it
+naively re-fires that effect: a second charge, a duplicate email.
+
+The **Replay-Bypass** guard
+([ADR-0027](https://babelqueue.com)) closes that gap. `redrive.py --bypass` stamps
+an out-of-band `bq-replay-bypass` transport header on each re-driven message; the
+runtime surfaces it to the handler, which wraps its external effect so a replay
+**skips** it:
+
+```python
+from babelqueue import bypass_external_effects
+
+@app.handler("urn:babel:orders:created")
+def on_order_created(data, meta):
+    save_order(data)                                   # idempotent core — always runs
+    bypass_external_effects(lambda: send_email(data))  # external effect — skipped on replay
+```
+
+The marker rides **out of band** as a transport header, so the wire envelope stays
+frozen at `schema_version: 1` (a normal first-time delivery has no header, runs the
+effect as usual). It propagates over a transport that carries per-message headers —
+today the in-memory transport does, so the end-to-end demo runs **with no broker**:
+
+```bash
+# replay-bypass — full loop on the in-memory transport, no Redis needed
+pip install -r requirements.txt        # (memory:// needs no broker extra)
+python replay_bypass_demo.py
+```
+
+The demo replays the *same* fixed message twice — once plain, once with
+`--bypass` — so you can see the difference: the idempotent core runs both times,
+but the email fires only on the plain replay, not the bypassed one:
+
+```
+=== Plain redrive — the email RE-FIRES (bypass=False) ===
+[seed] dead-lettered order 1042 on 'orders.dlq' (email had already gone out)
+[redrive] redriven=1  bq-replay-bypass stamped=False  orders.dlq -> orders
+[handler] processed order 1042 (idempotent core — always runs)
+[handler]   -> sent confirmation email for order 1042
+[consume] handled 1 message(s); emails sent on the replay: [1042]
+
+=== Redrive WITH replay-bypass — the email is SKIPPED (bypass=True) ===
+[seed] dead-lettered order 1042 on 'orders.dlq' (email had already gone out)
+[redrive] redriven=1  bq-replay-bypass stamped=True  orders.dlq -> orders
+[handler] processed order 1042 (idempotent core — always runs)
+[consume] handled 1 message(s); emails sent on the replay: []
+```
+
+Over a **real broker** the header propagates only once that broker's transport
+implements the optional `HeaderPublisher` capability — a follow-up, like the broker
+bindings themselves. Until then `python redrive.py --bypass` over Redis re-drives
+the message and prints a notice that the marker was not carried (so the replay would
+re-fire effects); the in-memory demo above proves the contract end-to-end today.
+
+> Replay-bypass is the inverse of [`idempotency-payments/`](../idempotency-payments):
+> idempotency stops an **accidental** duplicate from re-running the effect; bypass
+> lets an **intended** replay re-run the core while skipping the effect that already
+> happened.
 
 ## How a message gets here
 
