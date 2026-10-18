@@ -1,6 +1,6 @@
 # BabelQueue — examples
 
-[![live interop](https://img.shields.io/endpoint?url=https%3A%2F%2Fgithub.com%2FBabelQueue%2Fbabelqueue-examples%2Freleases%2Fdownload%2Fnightly%2Fbadge.json)](https://github.com/BabelQueue/babelqueue-examples/actions/workflows/nightly-interop.yml)
+[![live interop](https://img.shields.io/endpoint?url=https%3A%2F%2Fbabelqueue.com%2Fbadges%2Fnightly.json)](https://github.com/BabelQueue/babelqueue-examples/actions/workflows/nightly-interop.yml)
 
 Runnable, cross-language demos that prove the BabelQueue promise: **a message
 produced in one language is consumed natively in another**, over the broker you

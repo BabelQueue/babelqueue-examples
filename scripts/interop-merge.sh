@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Merge the per-broker nightly-interop job records into the two published artifacts.
+# Merge the per-broker nightly-interop job records into the published results file.
 #
 #   scripts/interop-merge.sh <results-dir> [<out-dir>]
 #
@@ -7,10 +7,12 @@
 #   {"broker","producer","consumer","status","run_url"}   (status: "passing" | "failing")
 # <out-dir> (default: .) receives
 #   interop-results.json  {"generated_at","run_url","brokers":[...]}   — always 7 entries
-#   badge.json            shields.io endpoint {"schemaVersion":1,"label","message","color"}
+#
+# The README badge is served by babelqueue.com/badges/nightly.json, built from this file
+# (shields.io refuses github.com as an endpoint host).
 #
 # A broker with no record (its job was skipped or never wrote one) is listed as "missing"
-# and counts as not passing, so the badge never over-reports. RUN_URL and GENERATED_AT may be
+# and counts as not passing, so the results never over-report. RUN_URL and GENERATED_AT may be
 # set in the environment (GENERATED_AT defaults to the current UTC time).
 set -euo pipefail
 
@@ -61,15 +63,4 @@ jq -n \
 
 passing=$(jq '[.brokers[] | select(.status == "passing")] | length' "$out_dir/interop-results.json")
 
-if (( passing == TOTAL )); then
-  color=brightgreen
-elif (( passing * 2 >= TOTAL )); then
-  color=yellow
-else
-  color=red
-fi
-
-jq -n --arg message "${passing}/${TOTAL} passing" --arg color "$color" \
-  '{schemaVersion: 1, label: "live interop", message: $message, color: $color}' > "$out_dir/badge.json"
-
-echo "interop-merge: ${passing}/${TOTAL} brokers passing -> $out_dir/interop-results.json, $out_dir/badge.json"
+echo "interop-merge: ${passing}/${TOTAL} brokers passing -> $out_dir/interop-results.json"

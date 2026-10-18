@@ -1,7 +1,7 @@
 # Nightly live cross-language interop: for each of the 7 brokers, one producer SDK writes to a
 # real broker container and a consumer SDK in a different language reads it back through the
 # published packages (PyPI / npm / Maven Central / NuGet / Go proxy). Per-job records are merged
-# by scripts/interop-merge.sh into interop-results.json + badge.json and attached to the
+# by scripts/interop-merge.sh into interop-results.json and attached to the
 # `nightly` prerelease. Extra evidence only — it is not a condition for "Compatible" (ADR-0032).
 name: nightly-interop
 
@@ -404,7 +404,7 @@ jobs:
       - name: Job summary
         run: |
           {
-            echo "## Live interop: $(jq -r .message out/badge.json)"
+            echo "## Live interop: $(jq -r '[.brokers[] | select(.status == "passing")] | length' out/interop-results.json)/$(jq -r '.brokers | length' out/interop-results.json) passing"
             echo
             echo "| broker | producer | consumer | status |"
             echo "| :--- | :--- | :--- | :--- |"
@@ -417,8 +417,8 @@ jobs:
             gh release create nightly --repo "$GITHUB_REPOSITORY" --prerelease \
               --target "$GITHUB_SHA" \
               --title "Nightly live interop" \
-              --notes "Rolling prerelease holding the latest nightly live-interop results (interop-results.json, badge.json). Assets are replaced on every run; the tag is never moved."
+              --notes "Rolling prerelease holding the latest nightly live-interop results (interop-results.json). Assets are replaced on every run; the tag is never moved."
           fi
-          gh release upload nightly out/interop-results.json out/badge.json --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload nightly out/interop-results.json --repo "$GITHUB_REPOSITORY" --clobber
       - name: Fail unless 7/7 pass
         run: jq -e '[.brokers[] | select(.status != "passing")] | length == 0' out/interop-results.json >/dev/null
