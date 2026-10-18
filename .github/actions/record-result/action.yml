@@ -1,0 +1,41 @@
+name: Record interop result
+description: >-
+  Writes the per-broker {broker, producer, consumer, status, run_url} record used by
+  scripts/interop-merge.sh and uploads it as the `result-<broker>` artifact. Call it with
+  `if: always()` as the last step of a broker job.
+inputs:
+  broker:
+    description: Broker key (redis, rabbitmq, sqs, pulsar, kafka, artemis, azureservicebus).
+    required: true
+  producer:
+    description: Producer SDK language.
+    required: true
+  consumer:
+    description: Consumer SDK language.
+    required: true
+  job-status:
+    description: The calling job's status (pass `${{ job.status }}`).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Write the record
+      shell: bash
+      env:
+        BROKER: ${{ inputs.broker }}
+        PRODUCER: ${{ inputs.producer }}
+        CONSUMER: ${{ inputs.consumer }}
+        JOB_STATUS: ${{ inputs.job-status }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/result"
+        status=failing
+        [ "$JOB_STATUS" = success ] && status=passing
+        jq -n --arg broker "$BROKER" --arg producer "$PRODUCER" --arg consumer "$CONSUMER" \
+          --arg status "$status" --arg run_url "$RUN_URL" \
+          '{broker: $broker, producer: $producer, consumer: $consumer, status: $status, run_url: $run_url}' \
+          > "$RUNNER_TEMP/result/$BROKER.json"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ inputs.broker }}
+        path: ${{ runner.temp }}/result/${{ inputs.broker }}.json

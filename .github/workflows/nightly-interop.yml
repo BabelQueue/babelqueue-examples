@@ -1,0 +1,424 @@
+# Nightly live cross-language interop: for each of the 7 brokers, one producer SDK writes to a
+# real broker container and a consumer SDK in a different language reads it back through the
+# published packages (PyPI / npm / Maven Central / NuGet / Go proxy). Per-job records are merged
+# by scripts/interop-merge.sh into interop-results.json + badge.json and attached to the
+# `nightly` prerelease. Extra evidence only — it is not a condition for "Compatible" (ADR-0032).
+name: nightly-interop
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-interop
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  redis:
+    name: redis (python -> go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: false
+      - name: Start Redis
+        working-directory: redis-orders
+        run: docker compose up -d --wait --wait-timeout 120
+      - name: Producer (Python)
+        working-directory: redis-orders/producer-python
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/python produce.py
+      - name: Consumer (Go)
+        working-directory: redis-orders/consumer-go
+        run: |
+          go run . 2>&1 | tee "$RUNNER_TEMP/consumer.log"
+          grep -q "processed 3 message" "$RUNNER_TEMP/consumer.log"
+      - name: Broker logs
+        if: failure()
+        working-directory: redis-orders
+        run: docker compose logs --tail=100
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: redis
+          producer: python
+          consumer: go
+          job-status: ${{ job.status }}
+
+  rabbitmq:
+    name: rabbitmq (python -> node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - name: Start RabbitMQ
+        working-directory: rabbitmq-orders
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: Producer (Python)
+        working-directory: rabbitmq-orders/producer-python
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/python produce.py
+      - name: Consumer (Node)
+        working-directory: rabbitmq-orders/consumer-node
+        run: |
+          npm install --no-audit --no-fund
+          node consume.mjs 2>&1 | tee "$RUNNER_TEMP/consumer.log"
+          grep -q "handled 4 message" "$RUNNER_TEMP/consumer.log"
+      - name: Broker logs
+        if: failure()
+        working-directory: rabbitmq-orders
+        run: docker compose logs --tail=100
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: rabbitmq
+          producer: python
+          consumer: node
+          job-status: ${{ job.status }}
+
+  sqs:
+    name: sqs (python -> go, LocalStack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_ENDPOINT: http://localhost:4566
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: false
+      - name: Start LocalStack (SQS)
+        run: |
+          docker run -d --name localstack -p 4566:4566 \
+            -e SERVICES=sqs -e SQS_ENDPOINT_STRATEGY=path \
+            localstack/localstack:3.8.1
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:4566/_localstack/health | grep -q '"sqs": "\(available\|running\)"'; then
+              echo "LocalStack SQS is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LocalStack did not become ready" >&2
+          exit 1
+      - name: Create the orders queue
+        run: aws --endpoint-url "$SQS_ENDPOINT" sqs create-queue --queue-name orders
+      - name: Producer (Python)
+        working-directory: sqs-orders/producer-python
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/python produce.py
+      - name: Consumer (Go)
+        working-directory: sqs-orders/consumer-go
+        run: |
+          go run . 2>&1 | tee "$RUNNER_TEMP/consumer.log"
+          grep -q "processed 3 message" "$RUNNER_TEMP/consumer.log"
+      - name: Broker logs
+        if: failure()
+        run: docker logs --tail=100 localstack
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: sqs
+          producer: python
+          consumer: go
+          job-status: ${{ job.status }}
+
+  pulsar:
+    name: pulsar (java -> dotnet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: pulsar-orders/producer-java/pom.xml
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+      - name: Start Pulsar standalone
+        working-directory: pulsar-orders
+        run: docker compose up -d --wait --wait-timeout 300
+      - name: Build producer and consumer
+        run: |
+          mvn -q -B -f pulsar-orders/producer-java/pom.xml compile
+          dotnet build pulsar-orders/consumer-dotnet --nologo -v quiet
+      - name: Consumer first, then producer
+        working-directory: pulsar-orders
+        run: |
+          # A Shared subscription only receives messages sent after it exists, so the .NET
+          # consumer must be subscribed before the Java producer publishes.
+          log="$RUNNER_TEMP/consumer.log"
+          CONSUME_SECONDS=60 dotnet run --no-build --project consumer-dotnet > "$log" 2>&1 &
+          consumer_pid=$!
+          for _ in $(seq 1 60); do
+            if docker compose exec -T pulsar bin/pulsar-admin topics subscriptions persistent://public/default/orders 2>/dev/null | grep -qx babelqueue; then
+              break
+            fi
+            sleep 2
+          done
+          producer_rc=0
+          mvn -q -B -f producer-java/pom.xml exec:java || producer_rc=$?
+          # Without a producer there is nothing to wait for; stop the consumer early.
+          if [ "$producer_rc" -ne 0 ]; then kill "$consumer_pid" 2>/dev/null || true; fi
+          consumer_rc=0
+          wait "$consumer_pid" || consumer_rc=$?
+          # Always show the consumer output, also when it failed (connection errors etc.).
+          cat "$log"
+          test "$producer_rc" -eq 0
+          test "$consumer_rc" -eq 0
+          test "$(grep -c '^\[dotnet\] orders:' "$log")" -eq 4
+      - name: Broker logs
+        if: failure()
+        working-directory: pulsar-orders
+        run: docker compose logs --tail=100
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: pulsar
+          producer: java
+          consumer: dotnet
+          job-status: ${{ job.status }}
+
+  kafka:
+    name: kafka (java -> go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: kafka-orders/producer-java/pom.xml
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: false
+      - name: Start Redpanda and create the topic
+        working-directory: kafka-orders
+        run: |
+          docker compose up -d --wait --wait-timeout 180
+          docker compose exec -T redpanda rpk topic create orders
+      - name: Producer (Java)
+        run: |
+          mvn -q -B -f kafka-orders/producer-java/pom.xml compile
+          mvn -q -B -f kafka-orders/producer-java/pom.xml exec:java
+      - name: Consumer (Go)
+        working-directory: kafka-orders/consumer-go
+        run: |
+          CONSUME_SECONDS=20 go run . 2>&1 | tee "$RUNNER_TEMP/consumer.log"
+          test "$(grep -c '^\[go\] orders:' "$RUNNER_TEMP/consumer.log")" -eq 4
+      - name: Broker logs
+        if: failure()
+        working-directory: kafka-orders
+        run: docker compose logs --tail=100
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: kafka
+          producer: java
+          consumer: go
+          job-status: ${{ job.status }}
+
+  artemis:
+    name: artemis (java/JMS -> python/AMQP 1.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: artemis-orders/producer-java/pom.xml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Start Artemis
+        working-directory: artemis-orders
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: Build producer and install consumer
+        run: |
+          mvn -q -B -f artemis-orders/producer-java/pom.xml compile
+          python -m venv artemis-orders/consumer-python/.venv
+          artemis-orders/consumer-python/.venv/bin/pip install "babelqueue[artemis]"
+      - name: Consumer first, then producer
+        working-directory: artemis-orders
+        run: |
+          # The Python consumer creates the anycast `orders` queue on attach, so it must be
+          # attached before the Java (JMS) producer sends. PYTHONUNBUFFERED makes its log lines
+          # visible immediately; CONSUME_TIMEOUT keeps it listening long enough to outlast the
+          # Maven start-up of the producer (it exits as soon as 4 messages are handled).
+          log="$RUNNER_TEMP/consumer.log"
+          PYTHONUNBUFFERED=1 CONSUME_TIMEOUT=90 \
+            consumer-python/.venv/bin/python consumer-python/consume.py > "$log" 2>&1 &
+          consumer_pid=$!
+          # Ready = the broker itself reports the `orders` queue (created by the consumer's attach).
+          for _ in $(seq 1 45); do
+            if docker compose exec -T artemis /var/lib/artemis-instance/bin/artemis queue stat \
+                 --user artemis --password artemis --queueName orders 2>/dev/null | grep -qw orders; then
+              break
+            fi
+            sleep 2
+          done
+          sleep 2
+          producer_rc=0
+          mvn -q -B -f producer-java/pom.xml exec:java || producer_rc=$?
+          if [ "$producer_rc" -ne 0 ]; then kill "$consumer_pid" 2>/dev/null || true; fi
+          consumer_rc=0
+          wait "$consumer_pid" || consumer_rc=$?
+          cat "$log"
+          test "$producer_rc" -eq 0
+          test "$consumer_rc" -eq 0
+          grep -q "consumed 4 message" "$log"
+      - name: Broker logs
+        if: failure()
+        working-directory: artemis-orders
+        run: docker compose logs --tail=100
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: artemis
+          producer: java
+          consumer: python
+          job-status: ${{ job.status }}
+
+  azureservicebus:
+    name: azureservicebus (python -> go, emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: false
+      - name: Start the Service Bus emulator
+        working-directory: asb-orders
+        run: |
+          docker compose up -d
+          # The emulator needs its SQL backend first. Wait until its health endpoint reports up;
+          # the producer then runs exactly once (a retry after a partial send would duplicate
+          # messages and break the "processed 3" assertion).
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:5300/health >/dev/null; then
+              echo "emulator health endpoint is up"
+              sleep 5
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Service Bus emulator did not become healthy" >&2
+          docker compose logs --tail=150 >&2
+          exit 1
+      - name: Producer (Python)
+        working-directory: asb-orders/producer-python
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/python produce.py
+      - name: Consumer (Go)
+        working-directory: asb-orders/consumer-go
+        run: |
+          go run . 2>&1 | tee "$RUNNER_TEMP/consumer.log"
+          grep -q "processed 3 message" "$RUNNER_TEMP/consumer.log"
+      - name: Broker logs
+        if: failure()
+        working-directory: asb-orders
+        run: docker compose logs --tail=150
+      - name: Record result
+        if: always()
+        uses: ./.github/actions/record-result
+        with:
+          broker: azureservicebus
+          producer: python
+          consumer: go
+          job-status: ${{ job.status }}
+
+  publish:
+    name: merge results and publish to the nightly release
+    runs-on: ubuntu-latest
+    needs: [redis, rabbitmq, sqs, pulsar, kafka, artemis, azureservicebus]
+    if: ${{ !cancelled() }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: results
+      - name: Merge results
+        run: scripts/interop-merge.sh results out
+      - name: Job summary
+        run: |
+          {
+            echo "## Live interop: $(jq -r .message out/badge.json)"
+            echo
+            echo "| broker | producer | consumer | status |"
+            echo "| :--- | :--- | :--- | :--- |"
+            jq -r '.brokers[] | "| \(.broker) | \(.producer) | \(.consumer) | \(.status) |"' out/interop-results.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload to the nightly prerelease
+        run: |
+          # Create the prerelease only when it is missing; an existing `nightly` tag is never moved.
+          if ! gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create nightly --repo "$GITHUB_REPOSITORY" --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Nightly live interop" \
+              --notes "Rolling prerelease holding the latest nightly live-interop results (interop-results.json, badge.json). Assets are replaced on every run; the tag is never moved."
+          fi
+          gh release upload nightly out/interop-results.json out/badge.json --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Fail unless 7/7 pass
+        run: jq -e '[.brokers[] | select(.status != "passing")] | length == 0' out/interop-results.json >/dev/null

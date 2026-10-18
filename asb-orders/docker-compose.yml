@@ -1,0 +1,28 @@
+# Azure Service Bus emulator — the broker for the demo. The emulator needs a SQL backend
+# (SQL Server 2022, `mssql/server`) for its metadata; Config.json pre-creates the `orders` queue. AMQP on 5672,
+# the emulator health endpoint on 5300. MSSQL_SA_PASSWORD is a throwaway local-emulator password
+# (it must satisfy SQL Server complexity rules) — override it with the env var if you like.
+# Using the emulator means you accept the Microsoft EULA (ACCEPT_EULA=Y).
+# Image tags are pinned so a nightly failure points at the SDKs, not at a moving `latest`
+# (2.0.1 is what `latest` resolved to on 2026-10-18). The backend is SQL Server 2022 pinned to a
+# cumulative-update tag (Azure SQL Edge is retired by Microsoft); it needs ~2 GB of RAM.
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-CU24-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-BabelQueue-Emu1!}
+
+  emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
+    depends_on:
+      - mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: mssql
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-BabelQueue-Emu1!}
+    volumes:
+      - ./Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    ports:
+      - "5672:5672"   # AMQP (SDKs)
+      - "5300:5300"   # emulator health endpoint
