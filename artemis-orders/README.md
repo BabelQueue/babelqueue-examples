@@ -24,6 +24,11 @@ Artemis bridges JMS and AMQP 1.0 on the same address — that is the whole point
 # 1) start Artemis (CORE/JMS on 61616, AMQP 1.0 on 5672, console on 8161)
 docker compose up -d
 # wait until healthy (~15s): docker compose ps
+# provision the anycast 'orders' queue (§7); the AMQP 1.0 consumer's attach would otherwise
+# auto-create the address as multicast and the JMS producer's anycast send would be refused
+docker compose exec artemis /var/lib/artemis-instance/bin/artemis queue create \
+  --user artemis --password artemis --name orders --address orders \
+  --anycast --durable --auto-create-address --silent
 ```
 
 ```bash
@@ -43,7 +48,7 @@ php produce.php
 # 3) consumer — pick one (both read the same 'orders' address, each over its own protocol)
 
 # Python over AMQP 1.0   (needs babelqueue[artemis] ^1.5)
-#   Start it FIRST (it creates the anycast 'orders' queue), then run a producer.
+#   Start it FIRST, then run a producer.
 cd consumer-python
 python -m venv .venv && . .venv/bin/activate
 pip install "babelqueue[artemis]"

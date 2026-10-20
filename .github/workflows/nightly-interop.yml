@@ -279,7 +279,14 @@ jobs:
           python-version: "3.12"
       - name: Start Artemis
         working-directory: artemis-orders
-        run: docker compose up -d --wait --wait-timeout 180
+        run: |
+          docker compose up -d --wait --wait-timeout 180
+          # §7 makes `orders` an anycast queue. The Python AMQP 1.0 attach carries no `queue`
+          # capability, so on an unknown address Artemis would auto-create it MULTICAST and the
+          # JMS producer's anycast send would be refused. Provision the queue up front.
+          docker compose exec -T artemis /var/lib/artemis-instance/bin/artemis queue create \
+            --user artemis --password artemis --name orders --address orders \
+            --anycast --durable --auto-create-address --silent
       - name: Build producer and install consumer
         run: |
           mvn -q -B -f artemis-orders/producer-java/pom.xml compile
@@ -288,23 +295,14 @@ jobs:
       - name: Consumer first, then producer
         working-directory: artemis-orders
         run: |
-          # The Python consumer creates the anycast `orders` queue on attach, so it must be
-          # attached before the Java (JMS) producer sends. PYTHONUNBUFFERED makes its log lines
+          # The consumer starts before the Java (JMS) producer sends. PYTHONUNBUFFERED makes its log lines
           # visible immediately; CONSUME_TIMEOUT keeps it listening long enough to outlast the
           # Maven start-up of the producer (it exits as soon as 4 messages are handled).
           log="$RUNNER_TEMP/consumer.log"
           PYTHONUNBUFFERED=1 CONSUME_TIMEOUT=90 \
             consumer-python/.venv/bin/python consumer-python/consume.py > "$log" 2>&1 &
           consumer_pid=$!
-          # Ready = the broker itself reports the `orders` queue (created by the consumer's attach).
-          for _ in $(seq 1 45); do
-            if docker compose exec -T artemis /var/lib/artemis-instance/bin/artemis queue stat \
-                 --user artemis --password artemis --queueName orders 2>/dev/null | grep -qw orders; then
-              break
-            fi
-            sleep 2
-          done
-          sleep 2
+          # The pre-provisioned durable queue holds anything sent before the attach completes.
           producer_rc=0
           mvn -q -B -f producer-java/pom.xml exec:java || producer_rc=$?
           if [ "$producer_rc" -ne 0 ]; then kill "$consumer_pid" 2>/dev/null || true; fi

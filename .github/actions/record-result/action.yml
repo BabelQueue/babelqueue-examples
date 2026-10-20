@@ -14,7 +14,7 @@ inputs:
     description: Consumer SDK language.
     required: true
   job-status:
-    description: The calling job's status (pass `${{ job.status }}`).
+    description: The calling job's status (pass the job context's status).
     required: true
 runs:
   using: composite
