@@ -1,0 +1,16 @@
+{
+    "name": "babelqueue/examples-redis-interop-laravel",
+    "description": "Interop probe: Laravel babelqueue-redis connection sharing a zset queue with the SDKs.",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "babelqueue/laravel": "*",
+        "illuminate/redis": "^11.0|^12.0",
+        "predis/predis": "^2.2 || ^3.0"
+    },
+    "minimum-stability": "stable",
+    "config": {
+        "allow-plugins": {}
+    }
+}

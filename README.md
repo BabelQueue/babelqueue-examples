@@ -58,6 +58,37 @@ with **Run workflow**) when that happens.
 This is extra evidence of cross-language compatibility, not a condition for the "Compatible" label
 (ADR-0032).
 
+## R1 behaviour scenarios
+
+Beyond the one-pair-per-broker smoke test, five scenarios prove the R1 behaviours (Redis delayed
+delivery and crash recovery, Kafka retry topics) across languages. Each script starts its broker
+with `docker compose` (`redis-orders/` or `kafka-orders/`), builds the probes it needs, runs the
+scenario and exits 0 only if every check passes. They also run in the nightly workflow as the
+`r1-scenarios` matrix.
+
+| Script | What it proves |
+| :--- | :--- |
+| [`scripts/redis-delay.sh`](scripts/redis-delay.sh) | Go publishes with `delay=2s`; Node, Java, .NET and Python each receive it. Measured delay is logged and must be within [1.0, 3.5] s. |
+| [`scripts/redis-recovery.sh`](scripts/redis-recovery.sh) | `kill -9` of a consumer that reserved a message (`retry_after` 5 s); another language receives it. Zset layout: `attempts` +1. Legacy `:processing` layout: `attempts` unchanged and `:processing` / `:processing:deadlines` end empty. |
+| [`scripts/redis-late-ack.sh`](scripts/redis-late-ack.sh) | Legacy layout: consumer A holds a message past `retry_after`, B receives the re-queued copy, A's late ack is a no-op ("reservation expired" warning), B acks; the message is processed once and the keys end empty. |
+| [`scripts/redis-laravel-shared.sh`](scripts/redis-laravel-shared.sh) | A Laravel `babelqueue-redis` connection and a Go consumer share one zset queue; every id is acked exactly once. |
+| [`scripts/kafka-retry.sh`](scripts/kafka-retry.sh) | Java consumer fails, the record goes to `<topic>.retry.1`, is re-injected and a Python consumer processes it. Checks `bq-attempts` and body `attempts` both +1, value and key byte-identical, no `bq-delay` / `bq-original-topic` on the re-injected record, `traceparent` preserved, wait equals the tier. |
+
+```bash
+scripts/redis-delay.sh
+scripts/redis-recovery.sh
+scripts/redis-late-ack.sh
+scripts/redis-laravel-shared.sh
+scripts/kafka-retry.sh
+
+# against the in-repo SDK sources instead of the published packages (pre-release check)
+BQ_SDK_ROOT=/path/to/BabelQueue scripts/redis-delay.sh
+```
+
+Needs Docker, bash 3.2+ and the toolchains of the probes a scenario uses (Go, Node, JDK 17 + Maven,
+.NET 8, Python 3, PHP + Composer). Probes live under `redis-orders/interop/` and
+`kafka-orders/interop/`; the shared helpers are in `scripts/lib/interop-common.sh`.
+
 ## License
 
 [MIT](LICENSE) © Muhammet Şafak

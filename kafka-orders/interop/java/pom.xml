@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.babelqueue.examples</groupId>
+  <artifactId>kafka-retry-probe-java</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>BabelQueue example - Kafka cross-language retry probe (Java)</name>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Published defaults; scripts/kafka-retry.sh overrides them with -D when BQ_SDK_ROOT is set. -->
+    <babelqueue-core.version>1.12.0</babelqueue-core.version>
+    <babelqueue-kafka.version>1.2.1</babelqueue-kafka.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-core</artifactId>
+      <version>${babelqueue-core.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-kafka</artifactId>
+      <version>${babelqueue-kafka.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <mainClass>RetryProbe</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Interop probe (.NET) for the R1 Redis scenarios.
+       Default: the published NuGet packages. Local SDK mode (pre-release verification):
+         dotnet build -p:BqSdkRoot=/path/to/BabelQueue
+       swaps the packages for ProjectReferences to the in-repo sources. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Probe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BqSdkRoot)' == ''">
+    <PackageReference Include="BabelQueue.Core" Version="1.4.0" />
+    <PackageReference Include="BabelQueue.Redis" Version="1.1.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BqSdkRoot)' != ''">
+    <ProjectReference Include="$(BqSdkRoot)/babelqueue-dotnet/src/BabelQueue.Core/BabelQueue.Core.csproj" />
+    <ProjectReference Include="$(BqSdkRoot)/babelqueue-dotnet-redis/src/BabelQueue.Redis/BabelQueue.Redis.csproj" />
+  </ItemGroup>
+
+</Project>
