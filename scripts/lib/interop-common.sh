@@ -29,8 +29,8 @@ BG_PIDS=()
 
 BQ_SDK_ROOT="${BQ_SDK_ROOT:-}"
 # Published defaults (overridable). In local mode the in-repo versions are read from the manifests.
-JAVA_CORE_VERSION="${BQ_JAVA_CORE_VERSION:-1.12.0}"
-JAVA_REDIS_VERSION="${BQ_JAVA_REDIS_VERSION:-1.1.0}"
+JAVA_CORE_VERSION="${BQ_JAVA_CORE_VERSION:-1.13.0}"
+JAVA_REDIS_VERSION="${BQ_JAVA_REDIS_VERSION:-1.2.0}"
 
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 
@@ -122,7 +122,7 @@ build_python() {
   if [ -n "$BQ_SDK_ROOT" ]; then
     "$WORK/venv/bin/pip" install --quiet -e "$BQ_SDK_ROOT/babelqueue-python[redis,kafka]"
   else
-    "$WORK/venv/bin/pip" install --quiet -r "$PROBE_SRC/python/requirements.txt" "babelqueue[kafka]"
+    "$WORK/venv/bin/pip" install --quiet -r "$PROBE_SRC/python/requirements.txt" "babelqueue[kafka]>=1.22.0"
   fi
 }
 
@@ -151,7 +151,7 @@ build_java() {
 build_kafka_java() {
   need mvn
   need java
-  local core="$JAVA_CORE_VERSION" kafka="${BQ_JAVA_KAFKA_VERSION:-1.2.1}"
+  local core="$JAVA_CORE_VERSION" kafka="${BQ_JAVA_KAFKA_VERSION:-1.3.0}"
   if [ -n "$BQ_SDK_ROOT" ]; then
     mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests
     mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-kafka/pom.xml" install -DskipTests
