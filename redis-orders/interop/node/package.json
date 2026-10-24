@@ -4,8 +4,8 @@
   "type": "module",
   "description": "Node probe for the BabelQueue Redis interop scenarios (delay, kill -9 recovery, late ack).",
   "dependencies": {
-    "@babelqueue/core": "^1.12.0",
-    "@babelqueue/redis": "^1.1.0",
+    "@babelqueue/core": "^1.13.0",
+    "@babelqueue/redis": "^1.2.0",
     "ioredis": "^5.4.1"
   }
 }

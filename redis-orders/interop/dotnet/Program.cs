@@ -48,7 +48,10 @@ var handlers = new Dictionary<string, BabelHandler>
     [Urn] = async (envelope, rawBody, headers, ct) =>
     {
         var id = envelope.Meta.Id ?? "";
-        Console.WriteLine($"PROBE dotnet RECEIVED id={id} attempts={envelope.Attempts} at_ms={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+        // The zset consumer hands the handler Laravel's view (stored attempts + 1); the other probes
+        // print the stored (raw) value, so undo that +1 to compare like with like.
+        var stored = layout == RedisLayout.Zset ? envelope.Attempts - 1 : envelope.Attempts;
+        Console.WriteLine($"PROBE dotnet RECEIVED id={id} attempts={stored} at_ms={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
         if (mode == "hang")
         {
             await Task.Delay(Timeout.Infinite, ct); // the runner kill -9's us while the reservation is held

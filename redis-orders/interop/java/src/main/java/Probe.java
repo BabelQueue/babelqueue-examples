@@ -35,8 +35,11 @@ public final class Probe {
                 .blockTimeoutSeconds(1)
                 .handler(URN, (envelope, body) -> {
                     String id = envelope.meta().id();
+                    // The zset consumer hands the handler Laravel's view (stored attempts + 1);
+                    // the other probes print the stored (raw) value, so undo that +1 to compare like with like.
+                    int stored = layout == RedisLayout.ZSET ? envelope.attempts() - 1 : envelope.attempts();
                     System.out.printf("PROBE java RECEIVED id=%s attempts=%d at_ms=%d%n",
-                        id, envelope.attempts(), System.currentTimeMillis());
+                        id, stored, System.currentTimeMillis());
                     System.out.flush();
                     if ("hang".equals(mode)) {
                         Thread.sleep(Long.MAX_VALUE); // the runner kill -9's us while the reservation is held

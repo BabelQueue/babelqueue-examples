@@ -1,1 +1,1 @@
-babelqueue[kafka]>=1.21.1
+babelqueue[kafka]>=1.22.0

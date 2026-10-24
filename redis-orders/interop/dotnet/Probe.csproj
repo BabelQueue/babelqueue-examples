@@ -17,8 +17,8 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(BqSdkRoot)' == ''">
-    <PackageReference Include="BabelQueue.Core" Version="1.4.0" />
-    <PackageReference Include="BabelQueue.Redis" Version="1.1.0" />
+    <PackageReference Include="BabelQueue.Core" Version="1.13.0" />
+    <PackageReference Include="BabelQueue.Redis" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(BqSdkRoot)' != ''">
