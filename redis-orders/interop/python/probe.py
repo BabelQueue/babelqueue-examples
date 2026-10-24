@@ -7,26 +7,24 @@ import logging
 import os
 import sys
 import time
-from urllib.parse import urlencode
 
 from babelqueue.redis_transport import RedisTransport
 
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="PROBE python WARN %(name)s: %(message)s")
 
 
-def build_url() -> str:
-    base = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    params = {}
-    if os.environ.get("LAYOUT", "zset").lower() == "zset":
-        params["laravel"] = "1"
+def build_transport() -> RedisTransport:
+    # Options go in as keyword arguments, not URL query parameters: the published transport parses
+    # `?laravel=1&retry_after=...` for itself but still hands the whole URL to redis-py, which
+    # rejects the unknown `laravel` connection argument.
+    url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    kwargs = {"laravel_compat": os.environ.get("LAYOUT", "zset").lower() == "zset"}
     retry_after = os.environ.get("RETRY_AFTER", "")
     if retry_after == "none":
-        params["retry_after"] = "null"
+        kwargs["retry_after"] = None
     elif retry_after:
-        params["retry_after"] = str(int(float(retry_after)))
-    if not params:
-        return base
-    return base + ("&" if "?" in base else "?") + urlencode(params)
+        kwargs["retry_after"] = int(float(retry_after))
+    return RedisTransport(url, **kwargs)
 
 
 def main() -> int:
@@ -35,7 +33,7 @@ def main() -> int:
     hold = float(os.environ.get("HOLD", "0"))
     timeout = float(os.environ.get("TIMEOUT", "30"))
 
-    transport = RedisTransport(build_url())
+    transport = build_transport()
     print("PROBE python READY", flush=True)
 
     deadline = time.time() + timeout
