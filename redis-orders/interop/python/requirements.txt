@@ -1,1 +1,1 @@
-babelqueue[redis]>=1.22.0
+babelqueue[redis]>=1.23.0

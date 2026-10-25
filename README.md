@@ -58,13 +58,14 @@ with **Run workflow**) when that happens.
 This is extra evidence of cross-language compatibility, not a condition for the "Compatible" label
 (ADR-0032).
 
-## R1 behaviour scenarios
+## R1 and post-R1 behaviour scenarios
 
-Beyond the one-pair-per-broker smoke test, five scenarios prove the R1 behaviours (Redis delayed
-delivery and crash recovery, Kafka retry topics) across languages. Each script starts its broker
-with `docker compose` (`redis-orders/` or `kafka-orders/`), builds the probes it needs, runs the
-scenario and exits 0 only if every check passes. They also run in the nightly workflow as the
-`r1-scenarios` matrix.
+Beyond the one-pair-per-broker smoke test, six scenarios prove the R1 behaviours (Redis delayed
+delivery and crash recovery, Kafka retry topics) and the post-R1 Pulsar exhaustion rules
+([ADR-0036](https://babelqueue.com/docs/spec/1.x/broker-bindings/#apache-pulsar)) across languages.
+Each script starts its broker with `docker compose` (`redis-orders/`, `kafka-orders/` or
+`pulsar-orders/`), builds the probes it needs, runs the scenario and exits 0 only if every check
+passes. They also run in the nightly workflow as the `r1-scenarios` matrix.
 
 | Script | What it proves |
 | :--- | :--- |
@@ -73,6 +74,7 @@ scenario and exits 0 only if every check passes. They also run in the nightly wo
 | [`scripts/redis-late-ack.sh`](scripts/redis-late-ack.sh) | Legacy layout: consumer A holds a message past `retry_after`, B receives the re-queued copy, A's late ack is a no-op ("reservation expired" warning), B acks; the message is processed once and the keys end empty. |
 | [`scripts/redis-laravel-shared.sh`](scripts/redis-laravel-shared.sh) | A Laravel `babelqueue-redis` connection and a Go consumer share one zset queue; every id is acked exactly once. |
 | [`scripts/kafka-retry.sh`](scripts/kafka-retry.sh) | Java consumer fails, the record goes to `<topic>.retry.1`, is re-injected and a Python consumer processes it. Checks `bq-attempts` and body `attempts` both +1, value and key byte-identical, no `bq-delay` / `bq-original-topic` on the re-injected record, `traceparent` preserved, wait equals the tier. |
+| [`scripts/pulsar-exhaustion.sh`](scripts/pulsar-exhaustion.sh) | A Go producer and DLQ reader against Java and Node consumers whose handler always throws. A valid envelope: the handler runs exactly 3 times (attempts 0, 1, 2) and exactly one record lands on `<queue>.dlq` with the same `meta.id` / `trace_id`, `dead_letter.reason: "failed"`, `dead_letter.attempts` 3, body `attempts` 3 and `bq-attempts` 3, on an `Exclusive` subscription (a re-publish retry; the native redelivery count stays 0) and on a `Shared` one (the nack fallback; the count goes 0, 1, 2). Poison: a JSON object with no `job` / `urn` and a body that is not valid UTF-8 never reach the handler and are recorded once as the [ADR-0035](https://babelqueue.com/docs/spec/1.x/dead-letter-and-tracing/) splice and base64 wrapper, the raw bytes intact. Nothing else arrives during the DLQ reader's quiet window. |
 
 ```bash
 scripts/redis-delay.sh
@@ -80,14 +82,27 @@ scripts/redis-recovery.sh
 scripts/redis-late-ack.sh
 scripts/redis-laravel-shared.sh
 scripts/kafka-retry.sh
+scripts/pulsar-exhaustion.sh
 
 # against the in-repo SDK sources instead of the published packages (pre-release check)
 BQ_SDK_ROOT=/path/to/BabelQueue scripts/redis-delay.sh
 ```
 
 Needs Docker, bash 3.2+ and the toolchains of the probes a scenario uses (Go, Node, JDK 17 + Maven,
-.NET 8, Python 3, PHP + Composer). Probes live under `redis-orders/interop/` and
-`kafka-orders/interop/`; the shared helpers are in `scripts/lib/interop-common.sh`.
+.NET 8, Python 3, PHP + Composer). Probes live under `redis-orders/interop/`,
+`kafka-orders/interop/` and `pulsar-orders/interop/`; the shared helpers are in
+`scripts/lib/interop-common.sh`.
+
+`pulsar-exhaustion.sh` pins the first SDK releases that carry the ADR-0036 behaviour
+(`com.babelqueue:babelqueue-pulsar` 1.2.0 in `pulsar-orders/interop/java/pom.xml` and
+`@babelqueue/pulsar` ^1.3.0 in `pulsar-orders/interop/node/package.json`; the Go probe only
+produces and reads, so it uses the published Go modules `babelqueue-go` v1.17.0 and `pulsar` v1.4.0).
+Without `BQ_SDK_ROOT` it runs against those published packages, as the nightly job does.
+`PULSAR_CONSUMERS="java"` or
+`"node"` limits it to one consumer language, and `PULSAR_NO_COMPOSE=1` uses a broker you already run
+(`PULSAR_URL`, default `pulsar://localhost:6650`; the topic stats come from `PULSAR_ADMIN_URL`, default
+`http://localhost:8080`). It also needs `curl` and `jq`, and each case asserts that the work topic ends with
+no backlog, so the retried original was acknowledged.
 
 ## License
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
-# Shared helpers for the R1 interop scenarios (redis-delay, redis-recovery, redis-late-ack,
-# redis-laravel-shared, kafka-retry). Source this file; it does nothing on its own.
+# Shared helpers for the R1 and post-R1 interop scenarios (redis-delay, redis-recovery, redis-late-ack,
+# redis-laravel-shared, kafka-retry, pulsar-exhaustion). Source this file; it does nothing on its own.
 #
 # SDK source selection
 #   default            the published SDK versions pinned in each probe's manifest
@@ -10,6 +10,8 @@
 #                      `pip install -e`, the laravel/ vendor autoloader)
 #
 # Probe contract (redis-orders/interop/<lang>/): see redis-orders/interop/go/main.go.
+# The Pulsar exhaustion probes (pulsar-orders/interop/{go,java,node}) have their own contract: see the
+# header of pulsar-orders/interop/go/main.go.
 #
 # Requires: bash 3.2+ (no associative arrays), docker compose (redis / redpanda services), and the toolchains of the probes
 # a scenario uses (go, node+npm, mvn+java, dotnet, python3, php+composer).
@@ -22,6 +24,8 @@ REDIS_DIR="$EXAMPLES_DIR/redis-orders"
 PROBE_SRC="$REDIS_DIR/interop"
 KAFKA_DIR="$EXAMPLES_DIR/kafka-orders"
 KAFKA_SRC="$KAFKA_DIR/interop" # used by kafka-retry.sh
+PULSAR_DIR="$EXAMPLES_DIR/pulsar-orders"
+PULSAR_SRC="$PULSAR_DIR/interop" # used by pulsar-exhaustion.sh
 
 RUN_ID="$(date +%s)$$" # unique queue/topic suffix per run
 WORK="${INTEROP_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/bq-interop.XXXXXX")}"
@@ -31,6 +35,10 @@ BQ_SDK_ROOT="${BQ_SDK_ROOT:-}"
 # Published defaults (overridable). In local mode the in-repo versions are read from the manifests.
 JAVA_CORE_VERSION="${BQ_JAVA_CORE_VERSION:-1.13.0}"
 JAVA_REDIS_VERSION="${BQ_JAVA_REDIS_VERSION:-1.2.0}"
+# babelqueue-pulsar 1.2.0 is the first release with the bounded redelivery of ADR-0036. The Node probe
+# pins @babelqueue/pulsar in pulsar-orders/interop/node/package.json the same way; the Go probe only
+# produces and reads, so it uses the published Go modules.
+JAVA_PULSAR_VERSION="${BQ_JAVA_PULSAR_VERSION:-1.2.0}"
 
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 
@@ -122,7 +130,7 @@ build_python() {
   if [ -n "$BQ_SDK_ROOT" ]; then
     "$WORK/venv/bin/pip" install --quiet -e "$BQ_SDK_ROOT/babelqueue-python[redis,kafka]"
   else
-    "$WORK/venv/bin/pip" install --quiet -r "$PROBE_SRC/python/requirements.txt" "babelqueue[kafka]>=1.22.0"
+    "$WORK/venv/bin/pip" install --quiet -r "$PROBE_SRC/python/requirements.txt" "babelqueue[kafka]>=1.23.0"
   fi
 }
 
@@ -164,6 +172,64 @@ build_kafka_java() {
     mvn -q -B compile "-Dbabelqueue-core.version=$core" "-Dbabelqueue-kafka.version=$kafka"
     mvn -q -B dependency:build-classpath -Dmdep.outputFile=cp.txt \
       "-Dbabelqueue-core.version=$core" "-Dbabelqueue-kafka.version=$kafka"
+  )
+}
+
+# build_pulsar_go: the Pulsar exhaustion producer / DLQ reader (pulsar-orders/interop/go) into $WORK/pgo.
+build_pulsar_go() {
+  need go
+  rm -rf "$WORK/pgo" && cp -r "$PULSAR_SRC/go" "$WORK/pgo"
+  (
+    cd "$WORK/pgo"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      go mod edit \
+        -replace "github.com/babelqueue/babelqueue-go=$BQ_SDK_ROOT/babelqueue-go" \
+        -replace "github.com/babelqueue/babelqueue-go/pulsar=$BQ_SDK_ROOT/babelqueue-go/pulsar"
+    fi
+    GOFLAGS=-mod=mod go build -o "$WORK/pgo/probe-go" .
+  )
+}
+
+# build_pulsar_java: the Pulsar exhaustion consumer (pulsar-orders/interop/java) into $WORK/pjava.
+build_pulsar_java() {
+  need mvn
+  need java
+  local core="$JAVA_CORE_VERSION" pulsar="$JAVA_PULSAR_VERSION"
+  if [ -n "$BQ_SDK_ROOT" ]; then
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-pulsar/pom.xml" install -DskipTests
+    core="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java/pom.xml")"
+    pulsar="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java-pulsar/pom.xml")"
+  fi
+  rm -rf "$WORK/pjava" && cp -r "$PULSAR_SRC/java" "$WORK/pjava"
+  (
+    cd "$WORK/pjava"
+    mvn -q -B compile "-Dbabelqueue-core.version=$core" "-Dbabelqueue-pulsar.version=$pulsar"
+    mvn -q -B dependency:build-classpath -Dmdep.outputFile=cp.txt \
+      "-Dbabelqueue-core.version=$core" "-Dbabelqueue-pulsar.version=$pulsar"
+  )
+}
+
+# build_pulsar_node: the Pulsar exhaustion consumer (pulsar-orders/interop/node) into $WORK/pnode.
+build_pulsar_node() {
+  need node
+  need npm
+  rm -rf "$WORK/pnode" && cp -r "$PULSAR_SRC/node" "$WORK/pnode"
+  (
+    cd "$WORK/pnode"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      # Tarballs, not symlinks (see build_node): one copy of @babelqueue/core for both packages.
+      mkdir -p "$WORK/tgz-pulsar"
+      (cd "$BQ_SDK_ROOT/babelqueue-node" && { [ -d node_modules ] || npm ci --silent; } \
+        && npm run --silent build && npm pack --silent --pack-destination "$WORK/tgz-pulsar" >/dev/null)
+      (cd "$BQ_SDK_ROOT/babelqueue-node-adapters" && { [ -d node_modules ] || npm ci --silent; } \
+        && npm run --silent build -w @babelqueue/pulsar \
+        && npm pack --silent -w @babelqueue/pulsar --pack-destination "$WORK/tgz-pulsar" >/dev/null)
+      npm install --silent --no-audit --no-fund "$WORK"/tgz-pulsar/babelqueue-core-*.tgz \
+        "$WORK"/tgz-pulsar/babelqueue-pulsar-*.tgz pulsar-client
+    else
+      npm install --silent --no-audit --no-fund
+    fi
   )
 }
 
@@ -215,6 +281,9 @@ probe_exec() {
     python) exec "$WORK/venv/bin/python" "$PROBE_SRC/python/probe.py" "$@" ;;
     kjava) cd "$WORK/kjava" && exec java -cp "target/classes:$(cat cp.txt)" RetryProbe "$@" ;;
     kpython) exec "$WORK/venv/bin/python" "$KAFKA_SRC/python/kafka_probe.py" "$@" ;;
+    pgo) exec "$WORK/pgo/probe-go" "$@" ;;
+    pjava) cd "$WORK/pjava" && exec java -cp "target/classes:$(cat cp.txt)" Probe "$@" ;;
+    pnode) cd "$WORK/pnode" && exec node probe.mjs "$@" ;;
     laravel) AUTOLOAD="$LARAVEL_AUTOLOAD" exec php "$WORK/laravel/probe.php" "$@" ;;
     *) fail "unknown probe language: $lang" ;;
   esac
