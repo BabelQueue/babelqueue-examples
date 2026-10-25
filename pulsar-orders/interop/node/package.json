@@ -1,0 +1,14 @@
+{
+  "name": "babelqueue-example-pulsar-exhaustion-probe-node",
+  "private": true,
+  "type": "module",
+  "description": "Node probe for the BabelQueue Pulsar exhaustion scenarios (ADR-0036).",
+  "dependencies": {
+    "@babelqueue/core": "^1.13.0",
+    "@babelqueue/pulsar": "^1.3.0",
+    "pulsar-client": "^1.12.0"
+  },
+  "allowScripts": {
+    "pulsar-client": true
+  }
+}

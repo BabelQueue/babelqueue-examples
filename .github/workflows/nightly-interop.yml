@@ -4,7 +4,8 @@
 # by scripts/interop-merge.sh into interop-results.json and attached to the
 # `nightly` prerelease. Extra evidence only — it is not a condition for "Compatible" (ADR-0032).
 # The `r1-scenarios` matrix adds the five R1 behaviour scenarios (Redis delay, kill -9 recovery,
-# legacy late ack, Laravel shared queue, Kafka cross-language retry); see README.md.
+# legacy late ack, Laravel shared queue, Kafka cross-language retry) and the post-R1 Pulsar
+# exhaustion scenario (Go producer, Java and Node consumers, ADR-0036); see README.md.
 name: nightly-interop
 
 on:
@@ -383,10 +384,13 @@ jobs:
           job-status: ${{ job.status }}
 
   # R1 scenarios (Faz 10): Redis delay / kill -9 recovery / late ack / Laravel shared queue and the
-  # Kafka cross-language retry. They run against the published SDK versions pinned in each probe's
-  # manifest, so they stay red until the R1 releases are on the registries. They are not part of the
-  # 7-broker interop-results.json (scripts/interop-merge.sh is unchanged); the publish job fails
-  # the run when any of them fails.
+  # Kafka cross-language retry, plus the post-R1 Pulsar exhaustion scenario (pulsar-exhaustion: a Go
+  # producer and DLQ reader, Java and Node consumers whose handler always throws). They run against
+  # the published SDK versions pinned in each probe's manifest, so they stay red until the releases
+  # are on the registries (pulsar-exhaustion needs babelqueue-pulsar 1.2.0 and @babelqueue/pulsar
+  # 1.3.0; run it from a checkout with BQ_SDK_ROOT before that). They are not part of the 7-broker
+  # interop-results.json (scripts/interop-merge.sh is unchanged); the publish job fails the run when
+  # any of them fails.
   r1-scenarios:
     name: r1 (${{ matrix.scenario }})
     runs-on: ubuntu-latest
@@ -410,6 +414,9 @@ jobs:
           - scenario: kafka-retry
             script: scripts/kafka-retry.sh
             compose: kafka-orders
+          - scenario: pulsar-exhaustion
+            script: scripts/pulsar-exhaustion.sh
+            compose: pulsar-orders
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
