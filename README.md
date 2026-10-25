@@ -96,9 +96,9 @@ Needs Docker, bash 3.2+ and the toolchains of the probes a scenario uses (Go, No
 `pulsar-exhaustion.sh` pins the first SDK releases that carry the ADR-0036 behaviour
 (`com.babelqueue:babelqueue-pulsar` 1.2.0 in `pulsar-orders/interop/java/pom.xml` and
 `@babelqueue/pulsar` ^1.3.0 in `pulsar-orders/interop/node/package.json`; the Go probe only
-produces and reads, so it stays on the published Go modules). Until those versions are on Maven
-Central and npm, run it with `BQ_SDK_ROOT` as above (it builds the in-repo Java and Node packages);
-the nightly job is red until then, like the other pinned scenarios. `PULSAR_CONSUMERS="java"` or
+produces and reads, so it uses the published Go modules `babelqueue-go` v1.17.0 and `pulsar` v1.4.0).
+Without `BQ_SDK_ROOT` it runs against those published packages, as the nightly job does.
+`PULSAR_CONSUMERS="java"` or
 `"node"` limits it to one consumer language, and `PULSAR_NO_COMPOSE=1` uses a broker you already run
 (`PULSAR_URL`, default `pulsar://localhost:6650`; the topic stats come from `PULSAR_ADMIN_URL`, default
 `http://localhost:8080`). It also needs `curl` and `jq`, and each case asserts that the work topic ends with

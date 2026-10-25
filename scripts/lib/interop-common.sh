@@ -35,10 +35,9 @@ BQ_SDK_ROOT="${BQ_SDK_ROOT:-}"
 # Published defaults (overridable). In local mode the in-repo versions are read from the manifests.
 JAVA_CORE_VERSION="${BQ_JAVA_CORE_VERSION:-1.13.0}"
 JAVA_REDIS_VERSION="${BQ_JAVA_REDIS_VERSION:-1.2.0}"
-# babelqueue-pulsar 1.2.0 is the first release with the bounded redelivery of ADR-0036; until it is on
-# Maven Central the pulsar-exhaustion scenario needs BQ_SDK_ROOT. The Node probe pins @babelqueue/pulsar
-# in pulsar-orders/interop/node/package.json the same way; the Go probe only produces, so it stays on
-# the already published Go modules.
+# babelqueue-pulsar 1.2.0 is the first release with the bounded redelivery of ADR-0036. The Node probe
+# pins @babelqueue/pulsar in pulsar-orders/interop/node/package.json the same way; the Go probe only
+# produces and reads, so it uses the published Go modules.
 JAVA_PULSAR_VERSION="${BQ_JAVA_PULSAR_VERSION:-1.2.0}"
 
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
@@ -131,7 +130,7 @@ build_python() {
   if [ -n "$BQ_SDK_ROOT" ]; then
     "$WORK/venv/bin/pip" install --quiet -e "$BQ_SDK_ROOT/babelqueue-python[redis,kafka]"
   else
-    "$WORK/venv/bin/pip" install --quiet -r "$PROBE_SRC/python/requirements.txt" "babelqueue[kafka]>=1.22.0"
+    "$WORK/venv/bin/pip" install --quiet -r "$PROBE_SRC/python/requirements.txt" "babelqueue[kafka]>=1.23.0"
   fi
 }
 

@@ -21,8 +21,8 @@
 #   binary    a body that is not valid UTF-8: poison. The DLQ record is the ADR-0035 wrapper, raw_encoding
 #             "base64", and the decoded raw equals the published bytes.
 #
-# Usage: scripts/pulsar-exhaustion.sh                     (published SDKs; needs babelqueue-pulsar 1.2.0 and
-#                                                          @babelqueue/pulsar 1.3.0 on the registries)
+# Usage: scripts/pulsar-exhaustion.sh                     (published SDKs: babelqueue-pulsar 1.2.0 and
+#                                                          @babelqueue/pulsar 1.3.0 from the registries)
 #        BQ_SDK_ROOT=/path/to/BabelQueue scripts/pulsar-exhaustion.sh   (in-repo SDK sources)
 # Env:   PULSAR_URL (default pulsar://localhost:6650), PULSAR_NO_COMPOSE=1 to use an already running broker,
 #        PULSAR_ADMIN_URL (default http://localhost:8080, for the topic stats),

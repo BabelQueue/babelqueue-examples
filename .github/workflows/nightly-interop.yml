@@ -386,9 +386,9 @@ jobs:
   # R1 scenarios (Faz 10): Redis delay / kill -9 recovery / late ack / Laravel shared queue and the
   # Kafka cross-language retry, plus the post-R1 Pulsar exhaustion scenario (pulsar-exhaustion: a Go
   # producer and DLQ reader, Java and Node consumers whose handler always throws). They run against
-  # the published SDK versions pinned in each probe's manifest, so they stay red until the releases
-  # are on the registries (pulsar-exhaustion needs babelqueue-pulsar 1.2.0 and @babelqueue/pulsar
-  # 1.3.0; run it from a checkout with BQ_SDK_ROOT before that). They are not part of the 7-broker
+  # the published SDK versions pinned in each probe's manifest (post-R1: babelqueue 1.23.0, babelqueue-pulsar
+  # 1.2.0, @babelqueue/pulsar and @babelqueue/redis 1.3.0, Go redis and pulsar v1.4.0, babelqueue/laravel
+  # 1.9.0); a probe pin that is not on its registry turns the job red. They are not part of the 7-broker
   # interop-results.json (scripts/interop-merge.sh is unchanged); the publish job fails the run when
   # any of them fails.
   r1-scenarios:
