@@ -1,0 +1,11 @@
+{
+  "name": "babelqueue-example-sqs-interop-probe-node",
+  "private": true,
+  "type": "module",
+  "description": "Node probe for the BabelQueue SQS poison scenarios (ADR-0037).",
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.700.0",
+    "@babelqueue/core": "^1.13.0",
+    "@babelqueue/sqs": "^1.4.0"
+  }
+}

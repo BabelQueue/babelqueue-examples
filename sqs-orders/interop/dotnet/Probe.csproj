@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Interop probe (.NET) for the ADR-0037 SQS poison scenarios.
+       Default: the published NuGet packages. Local SDK mode (pre-release verification):
+         dotnet build -p:BqSdkRoot=/path/to/BabelQueue
+       swaps the packages for ProjectReferences to the in-repo sources. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Probe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.100.15" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BqSdkRoot)' == ''">
+    <PackageReference Include="BabelQueue.Core" Version="1.13.0" />
+    <PackageReference Include="BabelQueue.Sqs" Version="1.4.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BqSdkRoot)' != ''">
+    <ProjectReference Include="$(BqSdkRoot)/babelqueue-dotnet/src/BabelQueue.Core/BabelQueue.Core.csproj" />
+    <ProjectReference Include="$(BqSdkRoot)/babelqueue-dotnet-sqs/src/BabelQueue.Sqs/BabelQueue.Sqs.csproj" />
+  </ItemGroup>
+
+</Project>

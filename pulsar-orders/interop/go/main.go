@@ -10,6 +10,9 @@
 //	poison     one body that is not an envelope to QUEUE; KIND selects it
 //	             noidentity  {"hello":"world","order_id":7}   (a JSON object with no job/urn: decision 4)
 //	             binary      ff fe 62 71 00 80                (not valid UTF-8: ADR-0035 base64 wrapper)
+//	gate       one VALID envelope to QUEUE whose bq-schema-version property is not the supported one
+//	           (ADR-0037 decision 1, broker-bindings §5.7): the body would decode, so a consumer that
+//	           settles it was shown to have decided on the property alone
 //	watch-dlq  subscribe to <QUEUE>.dlq from the earliest message and print every record
 //
 // Environment contract:
@@ -17,24 +20,30 @@
 //	PULSAR_URL      pulsar://localhost:6650
 //	QUEUE           queue (topic) name
 //	KIND            poison only: noidentity | binary
+//	VERSION         gate only: the bq-schema-version property value (default "2")
 //	EXPECT          watch-dlq: records to wait for (default 1)
 //	IDLE            watch-dlq: seconds without a record, after EXPECT were seen, before exiting 0 (default 8)
 //	TIMEOUT         watch-dlq: seconds to wait for EXPECT records before exiting 3 (default 90)
 //	EXPECT_RAW_HEX  watch-dlq: hex of the poison body, compared with the wrapper's raw (default: none)
+//	EXPECT_SHA256   watch-dlq: hex SHA-256 of the exact body a raw version-gate record must carry (default: none)
 //
 // Output lines (parsed by scripts/lib/interop-common.sh):
 //
 //	PROBE go READY
 //	PROBE go PUBLISHED id=<meta.id> trace=<trace_id> at_ms=<epoch ms>
 //	PROBE go POISONED kind=<kind>
+//	PROBE go GATED id=<meta.id> trace=<trace_id> version=<property value> sha256=<hex of the body sent>
 //	PROBE go DLQ id=... reason=... dl_attempts=... attempts=... bq_attempts=... bq_job=... trace=...
-//	             original_queue=... lang=... shape=envelope|splice|wrapper raw_encoding=... raw_ok=... member_hello=...
+//	             original_queue=... lang=... shape=envelope|splice|wrapper|raw raw_encoding=... raw_ok=... member_hello=...
+//	             has_dead_letter=0|1 body_sha256=<hex of the record body> body_ok=0|1|- bq_schema_version=...
+//	             (shape=raw: a canonical envelope with NO dead_letter block, the raw version-gate record)
 //	PROBE go DLQ_DONE count=<n>
 //	PROBE go TIMEOUT count=<n>
 package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -137,7 +146,7 @@ func nested(m map[string]any, key string) map[string]any {
 	return map[string]any{}
 }
 
-func printRecord(msg pulsarsdk.Message, expectRaw []byte) {
+func printRecord(msg pulsarsdk.Message, expectRaw []byte, expectSHA string) {
 	props := msg.Properties()
 	prop := func(k string) string { return tok(props[k]) }
 	var rec map[string]any
@@ -146,12 +155,28 @@ func printRecord(msg pulsarsdk.Message, expectRaw []byte) {
 		return
 	}
 	dl := nested(rec, "dead_letter")
+	_, hasDL := rec["dead_letter"]
 	shape := "splice"
 	switch {
+	case rec["job"] != nil && !hasDL:
+		shape = "raw"
 	case rec["job"] != nil:
 		shape = "envelope"
 	case rec["raw"] != nil:
 		shape = "wrapper"
+	}
+	sum := sha256.Sum256(msg.Payload())
+	bodySHA := hex.EncodeToString(sum[:])
+	bodyOK := "-"
+	if expectSHA != "" {
+		bodyOK = "0"
+		if bodySHA == expectSHA {
+			bodyOK = "1"
+		}
+	}
+	hasDLFlag := "0"
+	if hasDL {
+		hasDLFlag = "1"
 	}
 	rawOK := "-"
 	if shape == "wrapper" && expectRaw != nil {
@@ -169,10 +194,10 @@ func printRecord(msg pulsarsdk.Message, expectRaw []byte) {
 			rawOK = "1"
 		}
 	}
-	fmt.Printf("PROBE go DLQ id=%s reason=%s dl_attempts=%s attempts=%s bq_attempts=%s bq_job=%s trace=%s original_queue=%s lang=%s shape=%s raw_encoding=%s raw_ok=%s member_hello=%s\n",
+	fmt.Printf("PROBE go DLQ id=%s reason=%s dl_attempts=%s attempts=%s bq_attempts=%s bq_job=%s trace=%s original_queue=%s lang=%s shape=%s raw_encoding=%s raw_ok=%s member_hello=%s has_dead_letter=%s body_sha256=%s body_ok=%s bq_schema_version=%s\n",
 		str(nested(rec, "meta"), "id"), str(dl, "reason"), str(dl, "attempts"), str(rec, "attempts"),
 		prop("bq-attempts"), prop("bq-job"), str(rec, "trace_id"), str(dl, "original_queue"), str(dl, "lang"),
-		shape, str(rec, "raw_encoding"), rawOK, str(rec, "hello"))
+		shape, str(rec, "raw_encoding"), rawOK, str(rec, "hello"), hasDLFlag, bodySHA, bodyOK, prop("bq-schema-version"))
 }
 
 func watchDLQ(client pulsarsdk.Client, queue string) {
@@ -188,6 +213,7 @@ func watchDLQ(client pulsarsdk.Client, queue string) {
 			die("EXPECT_RAW_HEX", err)
 		}
 	}
+	expectSHA := strings.ToLower(os.Getenv("EXPECT_SHA256"))
 	c, err := client.Subscribe(pulsarsdk.ConsumerOptions{
 		Topic:                       queue + ".dlq",
 		SubscriptionName:            env("DLQ_SUBSCRIPTION", "bq-exhaustion-check"),
@@ -214,16 +240,52 @@ func watchDLQ(client pulsarsdk.Client, queue string) {
 		}
 		count++
 		last = time.Now()
-		printRecord(msg, expectRaw)
+		printRecord(msg, expectRaw, expectSHA)
 		_ = c.Ack(msg)
 	}
 	fmt.Printf("PROBE go TIMEOUT count=%d\n", count)
 	os.Exit(3)
 }
 
+// gate publishes a VALID envelope with the §5 projection, except that bq-schema-version carries VERSION.
+// It uses the raw Pulsar producer: the transport derives the property from the body, and the point is a
+// property the body disagrees with. A consumer that decoded the body first would find nothing wrong.
+func gate(ctx context.Context, client pulsarsdk.Client, queue string) {
+	version := env("VERSION", "2")
+	e, err := babelqueue.Make("urn:babel:orders:created", map[string]any{"order_id": 1001, "from": "go"}, babelqueue.WithQueue(queue))
+	if err != nil {
+		die("make", err)
+	}
+	body, err := e.Encode()
+	if err != nil {
+		die("encode", err)
+	}
+	producer, err := client.CreateProducer(pulsarsdk.ProducerOptions{Topic: queue})
+	if err != nil {
+		die("producer", err)
+	}
+	defer producer.Close()
+	_, err = producer.Send(ctx, &pulsarsdk.ProducerMessage{
+		Payload: body,
+		Properties: map[string]string{
+			"bq-job":            e.Job,
+			"bq-trace-id":       e.TraceID,
+			"bq-message-id":     e.Meta.ID,
+			"bq-schema-version": version,
+			"bq-source-lang":    e.Meta.Lang,
+			"bq-attempts":       "0",
+		},
+	})
+	if err != nil {
+		die("send", err)
+	}
+	sum := sha256.Sum256(body)
+	fmt.Printf("PROBE go GATED id=%s trace=%s version=%s sha256=%s\n", e.Meta.ID, e.TraceID, tok(version), hex.EncodeToString(sum[:]))
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: probe [produce|poison|watch-dlq]")
+		fmt.Fprintln(os.Stderr, "usage: probe [produce|poison|gate|watch-dlq]")
 		os.Exit(2)
 	}
 	client, err := pulsarsdk.NewClient(pulsarsdk.ClientOptions{URL: env("PULSAR_URL", "pulsar://localhost:6650")})
@@ -243,10 +305,12 @@ func main() {
 		} else {
 			poison(context.Background(), tr, queue)
 		}
+	case "gate":
+		gate(context.Background(), client, queue)
 	case "watch-dlq":
 		watchDLQ(client, queue)
 	default:
-		fmt.Fprintln(os.Stderr, "usage: probe [produce|poison|watch-dlq]")
+		fmt.Fprintln(os.Stderr, "usage: probe [produce|poison|gate|watch-dlq]")
 		os.Exit(2)
 	}
 }

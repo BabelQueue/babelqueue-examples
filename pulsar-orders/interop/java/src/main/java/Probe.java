@@ -25,6 +25,8 @@ import org.apache.pulsar.client.api.SubscriptionType;
  *                  nack: no client, the subscription is declared Shared and a retry is a negative acknowledgement
  *   MAX_ATTEMPTS   default 3
  *   RUN_S          seconds to keep consuming before exiting 0 (default 120; the runner kills it earlier)
+ *   NO_DLQ         1: build the consumer WITHOUT a dead-letter producer (dead-lettering off); the version-gate
+ *                  scenario uses it for the "acknowledged and dropped" row of ADR-0037 decision 1
  * </pre>
  *
  * <p>Output lines (parsed by scripts/lib/interop-common.sh):
@@ -64,12 +66,12 @@ public final class Probe {
             // an extra delivery inside the runner's quiet window.
             .negativeAckRedeliveryDelay(1, TimeUnit.SECONDS);
         Consumer<byte[]> consumer = subscription.subscribe();
-        Producer<byte[]> deadLetter = client.newProducer().topic(queue + ".dlq").create();
+        boolean noDlq = "1".equals(env("NO_DLQ", "0"));
+        Producer<byte[]> deadLetter = noDlq ? null : client.newProducer().topic(queue + ".dlq").create();
 
         PulsarConsumer.Builder builder = PulsarConsumer.builder(consumer)
             .receiveTimeout(500)
             .maxAttempts(maxAttempts)
-            .deadLetterProducer(deadLetter)
             .handler("urn:babel:orders:created", (Envelope envelope, org.apache.pulsar.client.api.Message<byte[]> message) -> {
                 System.out.printf("PROBE java HANDLED id=%s attempts=%d redelivery=%d%n",
                     envelope.meta().id(), envelope.attempts(), message.getRedeliveryCount());
@@ -77,6 +79,9 @@ public final class Probe {
             })
             .onError((error, envelope, message) ->
                 System.out.printf("PROBE java ERROR kind=%s%n", token(error.getClass().getSimpleName())));
+        if (deadLetter != null) {
+            builder.deadLetterProducer(deadLetter);
+        }
         // republish: the consumer builds its own retry producer from the client, so the cap holds on Exclusive.
         // nack: no producer, so the subscription type must be declared as one the broker counts redeliveries on.
         PulsarConsumer babel = republish ? builder.client(client).build() : builder.subscriptionType(type).build();
@@ -93,7 +98,9 @@ public final class Probe {
             System.out.flush();
         }
         babel.close();
-        deadLetter.close();
+        if (deadLetter != null) {
+            deadLetter.close();
+        }
         consumer.close();
         client.close();
         System.out.println("PROBE java DONE");

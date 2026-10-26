@@ -14,6 +14,8 @@
 //                  nack: no client, the subscription is declared Shared and a retry is a negative acknowledgement
 //   MAX_ATTEMPTS   default 3
 //   RUN_S          seconds to keep consuming before exiting 0 (default 120; the runner kills it earlier)
+//   NO_DLQ         1: build the consumer WITHOUT a dead-letter producer (dead-lettering off); the version-gate
+//                  scenario uses it for the "acknowledged and dropped" row of ADR-0037 decision 1
 //
 // Output lines (parsed by scripts/lib/interop-common.sh):
 //
@@ -45,11 +47,11 @@ const subscription = await client.subscribe({
   // The nack path redelivers after this delay (one minute by default).
   nAckRedeliverTimeoutMs: 1000,
 });
-const deadLetter = await client.createProducer({ topic: `${queue}.dlq` });
+const noDlq = env("NO_DLQ", "0") === "1";
+const deadLetter = noDlq ? null : await client.createProducer({ topic: `${queue}.dlq` });
 
 const options = {
   maxAttempts,
-  deadLetterProducer: deadLetter,
   queue,
   receiveTimeoutMs: 500,
   subscriptionType: type,
@@ -60,6 +62,7 @@ const options = {
 // nack: no producer, so the declared subscription type must be one the broker counts redeliveries on.
 // `client` builds the retry producer only together with `topic` (the topic the subscription reads):
 // pulsar-client's Consumer has no getTopic(), so without `topic` the constructor fails closed on Exclusive.
+if (deadLetter) options.deadLetterProducer = deadLetter;
 if (republish) {
   options.client = client;
   options.topic = queue;
@@ -87,6 +90,6 @@ while (Date.now() < runUntil) {
   }
 }
 await subscription.close();
-await deadLetter.close();
+if (deadLetter) await deadLetter.close();
 await client.close();
 console.log("PROBE node DONE");
