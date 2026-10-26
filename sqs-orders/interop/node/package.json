@@ -6,6 +6,6 @@
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.700.0",
     "@babelqueue/core": "^1.13.0",
-    "@babelqueue/sqs": "^1.3.0"
+    "@babelqueue/sqs": "^1.4.0"
   }
 }

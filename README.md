@@ -99,10 +99,10 @@ Needs Docker, bash 3.2+ and the toolchains of the probes a scenario uses (Go, No
 `kafka-orders/interop/`, `pulsar-orders/interop/`, `artemis-orders/interop/` and `sqs-orders/interop/`; the shared
 helpers are in `scripts/lib/interop-common.sh`.
 
-`pulsar-exhaustion.sh` pins the first SDK releases that carry the ADR-0036 behaviour
-(`com.babelqueue:babelqueue-pulsar` 1.2.0 in `pulsar-orders/interop/java/pom.xml` and
-`@babelqueue/pulsar` ^1.3.0 in `pulsar-orders/interop/node/package.json`; the Go probe only
-produces and reads, so it uses the published Go modules `babelqueue-go` v1.17.0 and `pulsar` v1.4.0).
+`pulsar-exhaustion.sh` pins SDK releases that carry the ADR-0036 and ADR-0037 behaviour
+(`com.babelqueue:babelqueue-pulsar` 1.3.0 in `pulsar-orders/interop/java/pom.xml` and
+`@babelqueue/pulsar` ^1.4.0 in `pulsar-orders/interop/node/package.json`; the Go probe only
+produces and reads, so it uses the published Go modules `babelqueue-go` v1.18.0 and `pulsar` v1.4.0).
 Without `BQ_SDK_ROOT` it runs against those published packages, as the nightly job does.
 `PULSAR_CONSUMERS="java"` or
 `"node"` limits it to one consumer language, and `PULSAR_NO_COMPOSE=1` uses a broker you already run
@@ -111,16 +111,17 @@ Without `BQ_SDK_ROOT` it runs against those published packages, as the nightly j
 no backlog, so the retried original was acknowledged.
 
 `version-gate.sh` and `poison-dlq.sh` assert behaviour that exists only from the ADR-0037 SDK releases, which the
-probe manifests do not pin yet. They therefore **refuse to run without `BQ_SDK_ROOT`** (unless you set
-`BQ_ALLOW_PUBLISHED=1`, which the release phase does once the pins are bumped), and their nightly matrix entries are
-marked `experimental`. The Artemis probes need the anycast queues the script provisions with the Artemis CLI inside the
+probe manifests now pin (`babelqueue-pulsar` 1.3.0, `babelqueue-artemis` 1.1.0, `babelqueue-sqs` 1.4.0, `BabelQueue.Artemis` 1.2.0,
+`BabelQueue.Sqs` 1.4.0, `@babelqueue/pulsar` ^1.4.0, `@babelqueue/artemis` ^1.3.0, `@babelqueue/sqs` ^1.4.0). Without
+`BQ_SDK_ROOT` they still ask for `BQ_ALLOW_PUBLISHED=1` (the nightly matrix sets it with `published: "1"`) before they run
+against those published packages. The Artemis probes need the anycast queues the script provisions with the Artemis CLI inside the
 compose container; with `ARTEMIS_NO_COMPOSE=1` (a broker you already run) point `ARTEMIS_CLI` at that broker's
 `bin/artemis` instead (`ARTEMIS_URL` is the AMQP 1.0 URL, `ARTEMIS_JMS_URL` the Java consumer's CORE URL). The Artemis
 cases also assert that nothing reached the broker's native `DLQ` address (`ARTEMIS_NATIVE_DLQ` renames it). Each script
 closes only the compose projects it started itself when it exits: one that did not exist is removed with its volumes
 (`down -v`), one that existed but was stopped is stopped again with its volumes kept, and one that was already running
 (for example a demo you started from its README) and a broker you run yourself (`*_NO_COMPOSE=1`) are never touched.
-`KEEP_BROKERS=1` closes nothing. Maven installs of the unreleased SDKs go to `~/.m2` and build outputs to the SDK checkouts under
+`KEEP_BROKERS=1` closes nothing. With `BQ_SDK_ROOT`, Maven installs of the in-repo SDKs go to `~/.m2` and build outputs to the SDK checkouts under
 `BQ_SDK_ROOT`, as the other scenarios do; the SQS probes run against ElasticMQ (`SQS_ENDPOINT`, default `http://localhost:9324`) and create their
 own queues. `ARTEMIS_CONSUMERS`, `SQS_CONSUMERS` and `PULSAR_CONSUMERS` limit the consumer languages.
 

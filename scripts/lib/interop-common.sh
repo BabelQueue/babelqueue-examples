@@ -43,14 +43,14 @@ BQ_SDK_ROOT="${BQ_SDK_ROOT:-}"
 # Published defaults (overridable). In local mode the in-repo versions are read from the manifests.
 JAVA_CORE_VERSION="${BQ_JAVA_CORE_VERSION:-1.13.0}"
 JAVA_REDIS_VERSION="${BQ_JAVA_REDIS_VERSION:-1.2.0}"
-# babelqueue-pulsar 1.2.0 is the first release with the bounded redelivery of ADR-0036. The Node probe
+# babelqueue-pulsar 1.2.0 is the first release with the bounded redelivery of ADR-0036; 1.3.0 adds the ADR-0037 version gate. The Node probe
 # pins @babelqueue/pulsar in pulsar-orders/interop/node/package.json the same way; the Go probe only
 # produces and reads, so it uses the published Go modules.
-JAVA_PULSAR_VERSION="${BQ_JAVA_PULSAR_VERSION:-1.2.0}"
-# The ADR-0037 scenarios need the unreleased consumers: until plan phase 09 pins the releases, run them with
-# BQ_SDK_ROOT (see need_adr0037_sdks). The defaults below are the last releases and do NOT pass them.
-JAVA_ARTEMIS_VERSION="${BQ_JAVA_ARTEMIS_VERSION:-1.0.3}"
-JAVA_SQS_VERSION="${BQ_JAVA_SQS_VERSION:-1.3.0}"
+JAVA_PULSAR_VERSION="${BQ_JAVA_PULSAR_VERSION:-1.3.0}"
+# The ADR-0037 scenarios need the ADR-0037 releases: babelqueue-artemis 1.1.0 and babelqueue-sqs 1.4.0 (and
+# babelqueue-pulsar 1.3.0 above); the manifests pin them, so the scenarios also run without BQ_SDK_ROOT.
+JAVA_ARTEMIS_VERSION="${BQ_JAVA_ARTEMIS_VERSION:-1.1.0}"
+JAVA_SQS_VERSION="${BQ_JAVA_SQS_VERSION:-1.4.0}"
 
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 
@@ -301,12 +301,12 @@ build_laravel() {
   fi
 }
 
-# need_adr0037_sdks: the version-gate and poison-dlq scenarios assert ADR-0037 behaviour that the published SDK
-# versions pinned in the probe manifests do not have yet. Refuse to run them against those pins unless
-# BQ_ALLOW_PUBLISHED=1 (set it once the manifests pin the ADR-0037 releases).
+# need_adr0037_sdks: the version-gate and poison-dlq scenarios assert ADR-0037 behaviour. The probe manifests now
+# pin the ADR-0037 releases, but a copy of the manifests edited back to older pins would fail confusingly, so a run
+# without BQ_SDK_ROOT still needs BQ_ALLOW_PUBLISHED=1 (the nightly matrix sets it through `published: "1"`).
 need_adr0037_sdks() {
   if [ -z "$BQ_SDK_ROOT" ] && [ -z "${BQ_ALLOW_PUBLISHED:-}" ]; then
-    fail "$1 asserts ADR-0037 behaviour that is not in the published SDK pins yet; run it with BQ_SDK_ROOT=<BabelQueue checkout> (or BQ_ALLOW_PUBLISHED=1 once the pins are bumped)"
+    fail "$1 asserts ADR-0037 behaviour; run it with BQ_SDK_ROOT=<BabelQueue checkout>, or with BQ_ALLOW_PUBLISHED=1 to use the ADR-0037 releases pinned in the probe manifests"
   fi
 }
 

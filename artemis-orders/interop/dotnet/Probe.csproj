@@ -18,7 +18,7 @@
 
   <ItemGroup Condition="'$(BqSdkRoot)' == ''">
     <PackageReference Include="BabelQueue.Core" Version="1.13.0" />
-    <PackageReference Include="BabelQueue.Artemis" Version="1.1.0" />
+    <PackageReference Include="BabelQueue.Artemis" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(BqSdkRoot)' != ''">

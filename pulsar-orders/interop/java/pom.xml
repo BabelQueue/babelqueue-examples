@@ -16,7 +16,7 @@
     <!-- Published defaults; scripts/lib/interop-common.sh overrides them with -D when BQ_SDK_ROOT is set.
          babelqueue-pulsar 1.2.0 is the first release with the bounded redelivery of ADR-0036. -->
     <babelqueue-core.version>1.13.0</babelqueue-core.version>
-    <babelqueue-pulsar.version>1.2.0</babelqueue-pulsar.version>
+    <babelqueue-pulsar.version>1.3.0</babelqueue-pulsar.version>
   </properties>
 
   <dependencies>

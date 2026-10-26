@@ -22,8 +22,8 @@
 # covers both rows.
 #
 # Usage: BQ_SDK_ROOT=/path/to/BabelQueue scripts/version-gate.sh
-#        (the ADR-0037 consumers are not in the published pins yet: without BQ_SDK_ROOT the script refuses to run
-#        unless BQ_ALLOW_PUBLISHED=1.)
+#        (without BQ_SDK_ROOT it needs BQ_ALLOW_PUBLISHED=1 and then runs against the ADR-0037 releases pinned in the
+#        probe manifests.)
 # Env:   GATE_BROKERS, PULSAR_CONSUMERS (default "java node"), ARTEMIS_CONSUMERS (default "java node dotnet"),
 #        PULSAR_URL, PULSAR_ADMIN_URL, PULSAR_NO_COMPOSE=1, ARTEMIS_URL, ARTEMIS_JMS_URL, ARTEMIS_NO_COMPOSE=1,
 #        QUIET_S (default 8: the DLQ reader's quiet window), SETTLE_S (default 6: how long a consumer is given when no

@@ -15,7 +15,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!-- Published defaults; scripts/lib/interop-common.sh overrides them with -D when BQ_SDK_ROOT is set. -->
     <babelqueue-core.version>1.13.0</babelqueue-core.version>
-    <babelqueue-sqs.version>1.3.0</babelqueue-sqs.version>
+    <babelqueue-sqs.version>1.4.0</babelqueue-sqs.version>
   </properties>
 
   <dependencies>

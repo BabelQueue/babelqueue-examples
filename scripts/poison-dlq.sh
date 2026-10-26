@@ -23,8 +23,8 @@
 #   sqs      Go producer / DLQ reader (ElasticMQ); Java, Node and .NET consumers
 #
 # Usage: BQ_SDK_ROOT=/path/to/BabelQueue scripts/poison-dlq.sh
-#        (the ADR-0037 consumers are not in the published pins yet: without BQ_SDK_ROOT the script refuses to run
-#        unless BQ_ALLOW_PUBLISHED=1.)
+#        (without BQ_SDK_ROOT it needs BQ_ALLOW_PUBLISHED=1 and then runs against the ADR-0037 releases pinned in the
+#        probe manifests.)
 # Env:   POISON_BROKERS, ARTEMIS_CONSUMERS / SQS_CONSUMERS (default "java node dotnet"), ARTEMIS_URL, ARTEMIS_JMS_URL,
 #        ARTEMIS_NO_COMPOSE=1, SQS_ENDPOINT, SQS_NO_COMPOSE=1, QUIET_S (default 8: the DLQ reader's quiet window),
 #        SETTLE_S (default 6), CASE_TIMEOUT_S (default 90), NATIVE_TIMEOUT_S (default 120: the wait for the native
