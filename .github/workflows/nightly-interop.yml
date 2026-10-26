@@ -6,6 +6,10 @@
 # The `r1-scenarios` matrix adds the five R1 behaviour scenarios (Redis delay, kill -9 recovery,
 # legacy late ack, Laravel shared queue, Kafka cross-language retry) and the post-R1 Pulsar
 # exhaustion scenario (Go producer, Java and Node consumers, ADR-0036); see README.md.
+# The ADR-0037 scenarios (version gate on Pulsar and Artemis, poison on Artemis and SQS) are matrix entries marked
+# `experimental`: they assert behaviour that the SDK versions pinned in the probe manifests do not have until
+# plan phase 09 bumps the pins, so they run with continue-on-error and refuse to start without BQ_SDK_ROOT. Phase 09
+# bumps the pins, sets `published: "1"` on each entry and drops `experimental`.
 name: nightly-interop
 
 on:
@@ -394,7 +398,8 @@ jobs:
   r1-scenarios:
     name: r1 (${{ matrix.scenario }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -417,6 +422,30 @@ jobs:
           - scenario: pulsar-exhaustion
             script: scripts/pulsar-exhaustion.sh
             compose: pulsar-orders
+          - scenario: version-gate-pulsar
+            script: scripts/version-gate.sh
+            compose: pulsar-orders
+            brokers: pulsar
+            experimental: true
+            published: ""
+          - scenario: version-gate-artemis
+            script: scripts/version-gate.sh
+            compose: artemis-orders
+            brokers: artemis
+            experimental: true
+            published: ""
+          - scenario: poison-dlq-artemis
+            script: scripts/poison-dlq.sh
+            compose: artemis-orders
+            brokers: artemis
+            experimental: true
+            published: ""
+          - scenario: poison-dlq-sqs
+            script: scripts/poison-dlq.sh
+            compose: sqs-orders
+            brokers: sqs
+            experimental: true
+            published: ""
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -442,6 +471,10 @@ jobs:
           composer --version
           docker compose version
       - name: Run scenario
+        env:
+          GATE_BROKERS: ${{ matrix.brokers }}
+          POISON_BROKERS: ${{ matrix.brokers }}
+          BQ_ALLOW_PUBLISHED: ${{ matrix.published }}
         run: ${{ matrix.script }}
       - name: Broker logs
         if: failure()

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.babelqueue.examples</groupId>
+  <artifactId>sqs-interop-probe-java</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>BabelQueue example - SQS poison probe (Java)</name>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Published defaults; scripts/lib/interop-common.sh overrides them with -D when BQ_SDK_ROOT is set. -->
+    <babelqueue-core.version>1.13.0</babelqueue-core.version>
+    <babelqueue-sqs.version>1.3.0</babelqueue-sqs.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-core</artifactId>
+      <version>${babelqueue-core.version}</version>
+    </dependency>
+    <!-- Pulls software.amazon.awssdk:sqs transitively. -->
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-sqs</artifactId>
+      <version>${babelqueue-sqs.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <mainClass>Probe</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

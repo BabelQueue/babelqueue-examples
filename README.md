@@ -60,11 +60,12 @@ This is extra evidence of cross-language compatibility, not a condition for the 
 
 ## R1 and post-R1 behaviour scenarios
 
-Beyond the one-pair-per-broker smoke test, six scenarios prove the R1 behaviours (Redis delayed
-delivery and crash recovery, Kafka retry topics) and the post-R1 Pulsar exhaustion rules
-([ADR-0036](https://babelqueue.com/docs/spec/1.x/broker-bindings/#apache-pulsar)) across languages.
-Each script starts its broker with `docker compose` (`redis-orders/`, `kafka-orders/` or
-`pulsar-orders/`), builds the probes it needs, runs the scenario and exits 0 only if every check
+Beyond the one-pair-per-broker smoke test, eight scenarios prove the R1 behaviours (Redis delayed
+delivery and crash recovery, Kafka retry topics), the post-R1 Pulsar exhaustion rules
+([ADR-0036](https://babelqueue.com/docs/spec/1.x/broker-bindings/#apache-pulsar)) and the poison and
+version-gate rules ([ADR-0037](https://babelqueue.com/docs/spec/1.x/dead-letter-and-tracing/)) across languages.
+Each script starts its broker with `docker compose` (`redis-orders/`, `kafka-orders/`, `pulsar-orders/`,
+`artemis-orders/` or `sqs-orders/`), builds the probes it needs, runs the scenario and exits 0 only if every check
 passes. They also run in the nightly workflow as the `r1-scenarios` matrix.
 
 | Script | What it proves |
@@ -75,6 +76,8 @@ passes. They also run in the nightly workflow as the `r1-scenarios` matrix.
 | [`scripts/redis-laravel-shared.sh`](scripts/redis-laravel-shared.sh) | A Laravel `babelqueue-redis` connection and a Go consumer share one zset queue; every id is acked exactly once. |
 | [`scripts/kafka-retry.sh`](scripts/kafka-retry.sh) | Java consumer fails, the record goes to `<topic>.retry.1`, is re-injected and a Python consumer processes it. Checks `bq-attempts` and body `attempts` both +1, value and key byte-identical, no `bq-delay` / `bq-original-topic` on the re-injected record, `traceparent` preserved, wait equals the tier. |
 | [`scripts/pulsar-exhaustion.sh`](scripts/pulsar-exhaustion.sh) | A Go producer and DLQ reader against Java and Node consumers whose handler always throws. A valid envelope: the handler runs exactly 3 times (attempts 0, 1, 2) and exactly one record lands on `<queue>.dlq` with the same `meta.id` / `trace_id`, `dead_letter.reason: "failed"`, `dead_letter.attempts` 3, body `attempts` 3 and `bq-attempts` 3, on an `Exclusive` subscription (a re-publish retry; the native redelivery count stays 0) and on a `Shared` one (the nack fallback; the count goes 0, 1, 2). Poison: a JSON object with no `job` / `urn` and a body that is not valid UTF-8 never reach the handler and are recorded once as the [ADR-0035](https://babelqueue.com/docs/spec/1.x/dead-letter-and-tracing/) splice and base64 wrapper, the raw bytes intact. Nothing else arrives during the DLQ reader's quiet window. |
+| [`scripts/version-gate.sh`](scripts/version-gate.sh) | ADR-0037 decision 1. A Go producer publishes a **valid** envelope whose schema-version property is `"2"` (Pulsar `bq-schema-version`, Artemis `bq_schema_version`); a consumer in another language (Pulsar: Java, Node; Artemis: Java over JMS, Node, .NET) must never run its handler and must settle it on the first delivery. With dead-lettering on, exactly one **raw** record lands on `<queue>.dlq`: the SHA-256 of the body the Go reader receives equals the one it sent, there is no `dead_letter` block and nothing arrives during the quiet window. With dead-lettering off the message is acknowledged and dropped (Pulsar: no backlog and no `<queue>.dlq` topic; Artemis: nothing on the DLQ and the work queue is empty). Artemis with `on_unknown_urn: delete` is acknowledged without a record. |
+| [`scripts/poison-dlq.sh`](scripts/poison-dlq.sh) | ADR-0037 decision 2. A Go producer publishes a body that is not an envelope (a JSON object with no `job` / `urn`; on Artemis also bytes that are not valid UTF-8; on SQS also plain text); Java, Node and .NET consumers never run the handler. With dead-lettering on, one [ADR-0035](https://babelqueue.com/docs/spec/1.x/dead-letter-and-tracing/) record (splice or wrapper, `reason: "poison"`, `original_queue`, `lang`) lands on `<queue>.dlq` (on SQS it is `<queue>-dlq`, the contract's SQS name: SQS and ElasticMQ reject a dot in a standard queue name) and the original is gone. On SQS (ElasticMQ, a native `RedrivePolicy`) the native dead-letter queue stays empty then; with dead-lettering off the SDK leaves the message to SQS and the `RedrivePolicy` moves it to the native queue unchanged (same SHA-256), with nothing on the BabelQueue DLQ. Artemis with dead-lettering off, and both with `on_unknown_urn: delete`, acknowledge or delete without a record. The Java JMS consumer is not given the invalid-UTF-8 body, which a JMS text message cannot carry. |
 
 ```bash
 scripts/redis-delay.sh
@@ -83,6 +86,9 @@ scripts/redis-late-ack.sh
 scripts/redis-laravel-shared.sh
 scripts/kafka-retry.sh
 scripts/pulsar-exhaustion.sh
+BQ_SDK_ROOT=/path/to/BabelQueue scripts/version-gate.sh   # pulsar + artemis (13 cases); GATE_BROKERS=artemis limits it
+BQ_SDK_ROOT=/path/to/BabelQueue scripts/poison-dlq.sh     # artemis + sqs (23 cases); POISON_BROKERS=sqs limits it
+BQ_SDK_ROOT=/path/to/BabelQueue scripts/adr-0037-interop.sh   # both, 36 cases (BQ_SDK_ROOT defaults to the parent checkout)
 
 # against the in-repo SDK sources instead of the published packages (pre-release check)
 BQ_SDK_ROOT=/path/to/BabelQueue scripts/redis-delay.sh
@@ -90,8 +96,8 @@ BQ_SDK_ROOT=/path/to/BabelQueue scripts/redis-delay.sh
 
 Needs Docker, bash 3.2+ and the toolchains of the probes a scenario uses (Go, Node, JDK 17 + Maven,
 .NET 8, Python 3, PHP + Composer). Probes live under `redis-orders/interop/`,
-`kafka-orders/interop/` and `pulsar-orders/interop/`; the shared helpers are in
-`scripts/lib/interop-common.sh`.
+`kafka-orders/interop/`, `pulsar-orders/interop/`, `artemis-orders/interop/` and `sqs-orders/interop/`; the shared
+helpers are in `scripts/lib/interop-common.sh`.
 
 `pulsar-exhaustion.sh` pins the first SDK releases that carry the ADR-0036 behaviour
 (`com.babelqueue:babelqueue-pulsar` 1.2.0 in `pulsar-orders/interop/java/pom.xml` and
@@ -103,6 +109,20 @@ Without `BQ_SDK_ROOT` it runs against those published packages, as the nightly j
 (`PULSAR_URL`, default `pulsar://localhost:6650`; the topic stats come from `PULSAR_ADMIN_URL`, default
 `http://localhost:8080`). It also needs `curl` and `jq`, and each case asserts that the work topic ends with
 no backlog, so the retried original was acknowledged.
+
+`version-gate.sh` and `poison-dlq.sh` assert behaviour that exists only from the ADR-0037 SDK releases, which the
+probe manifests do not pin yet. They therefore **refuse to run without `BQ_SDK_ROOT`** (unless you set
+`BQ_ALLOW_PUBLISHED=1`, which the release phase does once the pins are bumped), and their nightly matrix entries are
+marked `experimental`. The Artemis probes need the anycast queues the script provisions with the Artemis CLI inside the
+compose container; with `ARTEMIS_NO_COMPOSE=1` (a broker you already run) point `ARTEMIS_CLI` at that broker's
+`bin/artemis` instead (`ARTEMIS_URL` is the AMQP 1.0 URL, `ARTEMIS_JMS_URL` the Java consumer's CORE URL). The Artemis
+cases also assert that nothing reached the broker's native `DLQ` address (`ARTEMIS_NATIVE_DLQ` renames it). Each script
+closes only the compose projects it started itself when it exits: one that did not exist is removed with its volumes
+(`down -v`), one that existed but was stopped is stopped again with its volumes kept, and one that was already running
+(for example a demo you started from its README) and a broker you run yourself (`*_NO_COMPOSE=1`) are never touched.
+`KEEP_BROKERS=1` closes nothing. Maven installs of the unreleased SDKs go to `~/.m2` and build outputs to the SDK checkouts under
+`BQ_SDK_ROOT`, as the other scenarios do; the SQS probes run against ElasticMQ (`SQS_ENDPOINT`, default `http://localhost:9324`) and create their
+own queues. `ARTEMIS_CONSUMERS`, `SQS_CONSUMERS` and `PULSAR_CONSUMERS` limit the consumer languages.
 
 ## License
 

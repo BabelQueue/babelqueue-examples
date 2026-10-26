@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 # Shared helpers for the R1 and post-R1 interop scenarios (redis-delay, redis-recovery, redis-late-ack,
-# redis-laravel-shared, kafka-retry, pulsar-exhaustion). Source this file; it does nothing on its own.
+# redis-laravel-shared, kafka-retry, pulsar-exhaustion, version-gate, poison-dlq). Source this file; it does nothing on its own.
 #
 # SDK source selection
 #   default            the published SDK versions pinned in each probe's manifest
@@ -11,7 +11,10 @@
 #
 # Probe contract (redis-orders/interop/<lang>/): see redis-orders/interop/go/main.go.
 # The Pulsar exhaustion probes (pulsar-orders/interop/{go,java,node}) have their own contract: see the
-# header of pulsar-orders/interop/go/main.go.
+# header of pulsar-orders/interop/go/main.go. The Artemis (artemis-orders/interop/{go,java,node,dotnet}) and SQS
+# (sqs-orders/interop/{go,java,node,dotnet}) probes of version-gate.sh / poison-dlq.sh (ADR-0037) share one
+# consumer contract: see the header of artemis-orders/interop/node/probe.mjs; the Go side of each is a producer and
+# DLQ reader (artemis-orders/interop/go/main.go, sqs-orders/interop/go/main.go).
 #
 # Requires: bash 3.2+ (no associative arrays), docker compose (redis / redpanda services), and the toolchains of the probes
 # a scenario uses (go, node+npm, mvn+java, dotnet, python3, php+composer).
@@ -25,11 +28,16 @@ PROBE_SRC="$REDIS_DIR/interop"
 KAFKA_DIR="$EXAMPLES_DIR/kafka-orders"
 KAFKA_SRC="$KAFKA_DIR/interop" # used by kafka-retry.sh
 PULSAR_DIR="$EXAMPLES_DIR/pulsar-orders"
-PULSAR_SRC="$PULSAR_DIR/interop" # used by pulsar-exhaustion.sh
+PULSAR_SRC="$PULSAR_DIR/interop" # used by pulsar-exhaustion.sh and version-gate.sh
+ARTEMIS_DIR="$EXAMPLES_DIR/artemis-orders"
+ARTEMIS_SRC="$ARTEMIS_DIR/interop" # used by version-gate.sh and poison-dlq.sh
+SQS_DIR="$EXAMPLES_DIR/sqs-orders"
+SQS_SRC="$SQS_DIR/interop" # used by poison-dlq.sh
 
 RUN_ID="$(date +%s)$$" # unique queue/topic suffix per run
 WORK="${INTEROP_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/bq-interop.XXXXXX")}"
 BG_PIDS=()
+COMPOSE_STARTED=() # "down:<file>" / "stop:<file>" for compose projects this run started; see compose_up
 
 BQ_SDK_ROOT="${BQ_SDK_ROOT:-}"
 # Published defaults (overridable). In local mode the in-repo versions are read from the manifests.
@@ -39,6 +47,10 @@ JAVA_REDIS_VERSION="${BQ_JAVA_REDIS_VERSION:-1.2.0}"
 # pins @babelqueue/pulsar in pulsar-orders/interop/node/package.json the same way; the Go probe only
 # produces and reads, so it uses the published Go modules.
 JAVA_PULSAR_VERSION="${BQ_JAVA_PULSAR_VERSION:-1.2.0}"
+# The ADR-0037 scenarios need the unreleased consumers: until plan phase 09 pins the releases, run them with
+# BQ_SDK_ROOT (see need_adr0037_sdks). The defaults below are the last releases and do NOT pass them.
+JAVA_ARTEMIS_VERSION="${BQ_JAVA_ARTEMIS_VERSION:-1.0.3}"
+JAVA_SQS_VERSION="${BQ_JAVA_SQS_VERSION:-1.3.0}"
 
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 
@@ -51,9 +63,35 @@ cleanup_interop() {
   for pid in ${BG_PIDS[@]+"${BG_PIDS[@]}"}; do
     [ -n "$pid" ] && kill -9 "$pid" >/dev/null 2>&1 || true
   done
+  # Only compose projects this run itself started (compose_up): "down:" ones did not exist before, so they and their
+  # volumes go; "stop:" ones existed but were stopped, so they are stopped again with their volumes kept. A project
+  # that was already running, and a broker you run yourself (*_NO_COMPOSE), is never touched. KEEP_BROKERS=1 touches none.
+  local entry
+  if [ -z "${KEEP_BROKERS:-}" ]; then
+    for entry in ${COMPOSE_STARTED[@]+"${COMPOSE_STARTED[@]}"}; do
+      case "$entry" in
+        down:*) docker compose -f "${entry#down:}" down -v >/dev/null 2>&1 || true ;;
+        stop:*) docker compose -f "${entry#stop:}" stop >/dev/null 2>&1 || true ;;
+      esac
+    done
+  fi
   if [ -z "${INTEROP_WORK:-}" ] && [ -z "${KEEP_WORK:-}" ]; then
     rm -rf "$WORK"
   fi
+}
+
+# compose_up <file> <wait-timeout-seconds>: `docker compose up -d --wait`, remembering what the EXIT trap may undo.
+# It is registered BEFORE the up, so a half-started project is cleaned up too.
+compose_up() {
+  local file="$1" timeout="$2"
+  if [ -n "$(docker compose -f "$file" ps -q --status running 2>/dev/null)" ]; then
+    log "compose project of $file is already running: left as it is on exit"
+  elif [ -n "$(docker compose -f "$file" ps -a -q 2>/dev/null)" ]; then
+    COMPOSE_STARTED+=("stop:$file") # existing, stopped: stop it again, keep its volumes
+  else
+    COMPOSE_STARTED+=("down:$file") # did not exist: remove it and the volumes this run created
+  fi
+  docker compose -f "$file" up -d --wait --wait-timeout "$timeout" >/dev/null
 }
 trap cleanup_interop EXIT
 
@@ -134,6 +172,9 @@ build_python() {
   fi
 }
 
+# Every `mvn install` of an SDK below passes -Djacoco.skip=true: -DskipTests leaves a stale target/jacoco.exec behind
+# from an earlier run, and the JaCoCo `check` goal bound to `verify` then fails the install on coverage the skipped
+# run never measured. The probes need the jar, not a coverage gate.
 mvn_version() { mvn -q -f "$1" help:evaluate -Dexpression=project.version -DforceStdout; }
 
 build_java() {
@@ -141,8 +182,8 @@ build_java() {
   need java
   local core="$JAVA_CORE_VERSION" redis="$JAVA_REDIS_VERSION"
   if [ -n "$BQ_SDK_ROOT" ]; then
-    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests
-    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-redis/pom.xml" install -DskipTests
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests -Djacoco.skip=true
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-redis/pom.xml" install -DskipTests -Djacoco.skip=true
     core="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java/pom.xml")"
     redis="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java-redis/pom.xml")"
   fi
@@ -161,8 +202,8 @@ build_kafka_java() {
   need java
   local core="$JAVA_CORE_VERSION" kafka="${BQ_JAVA_KAFKA_VERSION:-1.3.0}"
   if [ -n "$BQ_SDK_ROOT" ]; then
-    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests
-    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-kafka/pom.xml" install -DskipTests
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests -Djacoco.skip=true
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-kafka/pom.xml" install -DskipTests -Djacoco.skip=true
     core="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java/pom.xml")"
     kafka="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java-kafka/pom.xml")"
   fi
@@ -196,8 +237,8 @@ build_pulsar_java() {
   need java
   local core="$JAVA_CORE_VERSION" pulsar="$JAVA_PULSAR_VERSION"
   if [ -n "$BQ_SDK_ROOT" ]; then
-    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests
-    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-pulsar/pom.xml" install -DskipTests
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests -Djacoco.skip=true
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-pulsar/pom.xml" install -DskipTests -Djacoco.skip=true
     core="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java/pom.xml")"
     pulsar="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java-pulsar/pom.xml")"
   fi
@@ -260,6 +301,207 @@ build_laravel() {
   fi
 }
 
+# need_adr0037_sdks: the version-gate and poison-dlq scenarios assert ADR-0037 behaviour that the published SDK
+# versions pinned in the probe manifests do not have yet. Refuse to run them against those pins unless
+# BQ_ALLOW_PUBLISHED=1 (set it once the manifests pin the ADR-0037 releases).
+need_adr0037_sdks() {
+  if [ -z "$BQ_SDK_ROOT" ] && [ -z "${BQ_ALLOW_PUBLISHED:-}" ]; then
+    fail "$1 asserts ADR-0037 behaviour that is not in the published SDK pins yet; run it with BQ_SDK_ROOT=<BabelQueue checkout> (or BQ_ALLOW_PUBLISHED=1 once the pins are bumped)"
+  fi
+}
+
+# ---- artemis ---------------------------------------------------------------------------------
+
+ARTEMIS_COMPOSE_FILE="${ARTEMIS_COMPOSE_FILE:-$ARTEMIS_DIR/docker-compose.yml}"
+export ARTEMIS_URL="${ARTEMIS_URL:-amqp://artemis:artemis@localhost:5672}"
+export ARTEMIS_JMS_URL="${ARTEMIS_JMS_URL:-tcp://localhost:61616}"
+
+artemis_up() {
+  if [ -z "${ARTEMIS_NO_COMPOSE:-}" ]; then
+    need docker
+    log "starting artemis"
+    compose_up "$ARTEMIS_COMPOSE_FILE" 180
+  elif [ -z "${ARTEMIS_CLI:-}" ]; then
+    fail "ARTEMIS_NO_COMPOSE=1 needs ARTEMIS_CLI=<path to the broker's bin/artemis> to provision the anycast queues"
+  fi
+}
+
+# artemis_queue <name>...: provision anycast queues (§7). An AMQP 1.0 attach that carries no queue capability
+# would otherwise auto-create the address MULTICAST and a JMS consumer's anycast attach would be refused.
+artemis_queue() {
+  local name
+  for name in "$@"; do
+    if [ -n "${ARTEMIS_NO_COMPOSE:-}" ]; then
+      "$ARTEMIS_CLI" queue create --url "$ARTEMIS_JMS_URL" \
+        --user artemis --password artemis --name "$name" --address "$name" \
+        --anycast --durable --auto-create-address --silent >/dev/null \
+        || fail "could not provision the artemis queue $name with ARTEMIS_CLI=$ARTEMIS_CLI"
+    else
+      docker compose -f "$ARTEMIS_COMPOSE_FILE" exec -T artemis /var/lib/artemis-instance/bin/artemis queue create \
+        --user artemis --password artemis --name "$name" --address "$name" \
+        --anycast --durable --auto-create-address --silent >/dev/null \
+        || fail "could not provision the artemis queue $name"
+    fi
+  done
+}
+
+# build_artemis_go: the Artemis producer / DLQ reader (artemis-orders/interop/go) into $WORK/ago.
+build_artemis_go() {
+  need go
+  rm -rf "$WORK/ago" && cp -r "$ARTEMIS_SRC/go" "$WORK/ago"
+  (
+    cd "$WORK/ago"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      go mod edit -replace "github.com/babelqueue/babelqueue-go=$BQ_SDK_ROOT/babelqueue-go"
+    fi
+    GOFLAGS=-mod=mod go build -o "$WORK/ago/probe-go" .
+  )
+}
+
+# build_artemis_java: the JMS consumer (artemis-orders/interop/java) into $WORK/ajava.
+build_artemis_java() {
+  need mvn
+  need java
+  local core="$JAVA_CORE_VERSION" artemis="$JAVA_ARTEMIS_VERSION"
+  if [ -n "$BQ_SDK_ROOT" ]; then
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests -Djacoco.skip=true
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-artemis/pom.xml" install -DskipTests -Djacoco.skip=true
+    core="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java/pom.xml")"
+    artemis="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java-artemis/pom.xml")"
+  fi
+  rm -rf "$WORK/ajava" && cp -r "$ARTEMIS_SRC/java" "$WORK/ajava"
+  (
+    cd "$WORK/ajava"
+    mvn -q -B compile "-Dbabelqueue-core.version=$core" "-Dbabelqueue-artemis.version=$artemis"
+    mvn -q -B dependency:build-classpath -Dmdep.outputFile=cp.txt \
+      "-Dbabelqueue-core.version=$core" "-Dbabelqueue-artemis.version=$artemis"
+  )
+}
+
+# build_artemis_node: the rhea consumer (artemis-orders/interop/node) into $WORK/anode.
+build_artemis_node() {
+  need node
+  need npm
+  rm -rf "$WORK/anode" && cp -r "$ARTEMIS_SRC/node" "$WORK/anode"
+  (
+    cd "$WORK/anode"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      # Tarballs, not symlinks (see build_node): one copy of @babelqueue/core for both packages.
+      mkdir -p "$WORK/tgz-artemis"
+      (cd "$BQ_SDK_ROOT/babelqueue-node" && { [ -d node_modules ] || npm ci --silent; } \
+        && npm run --silent build && npm pack --silent --pack-destination "$WORK/tgz-artemis" >/dev/null)
+      (cd "$BQ_SDK_ROOT/babelqueue-node-adapters" && { [ -d node_modules ] || npm ci --silent; } \
+        && npm run --silent build -w @babelqueue/artemis \
+        && npm pack --silent -w @babelqueue/artemis --pack-destination "$WORK/tgz-artemis" >/dev/null)
+      npm install --silent --no-audit --no-fund "$WORK"/tgz-artemis/babelqueue-core-*.tgz \
+        "$WORK"/tgz-artemis/babelqueue-artemis-*.tgz rhea
+    else
+      npm install --silent --no-audit --no-fund
+    fi
+  )
+}
+
+# build_artemis_dotnet: the AMQPNetLite consumer (artemis-orders/interop/dotnet) into $WORK/adotnet.
+build_artemis_dotnet() {
+  need dotnet
+  rm -rf "$WORK/adotnet" && cp -r "$ARTEMIS_SRC/dotnet" "$WORK/adotnet"
+  (
+    cd "$WORK/adotnet"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      dotnet build -c Release -nologo -v q -o "$WORK/adotnet/out" "-p:BqSdkRoot=$BQ_SDK_ROOT"
+    else
+      dotnet build -c Release -nologo -v q -o "$WORK/adotnet/out"
+    fi
+  )
+}
+
+# ---- sqs (ElasticMQ) -------------------------------------------------------------------------
+
+SQS_COMPOSE_FILE="${SQS_COMPOSE_FILE:-$SQS_DIR/docker-compose.yml}"
+export SQS_ENDPOINT="${SQS_ENDPOINT:-http://localhost:9324}"
+export AWS_REGION="${AWS_REGION:-eu-central-1}"
+# ElasticMQ accepts any credentials; the probes pass their own, these cover any default-chain client.
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
+
+sqs_up() {
+  if [ -z "${SQS_NO_COMPOSE:-}" ]; then
+    need docker
+    log "starting elasticmq"
+    compose_up "$SQS_COMPOSE_FILE" 120
+  fi
+  local i
+  for i in $(seq 1 30); do
+    if curl -fsS "$SQS_ENDPOINT/?Action=ListQueues" >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  fail "elasticmq did not become ready at $SQS_ENDPOINT"
+}
+
+# build_sqs_go: the SQS provisioner / producer / DLQ reader (sqs-orders/interop/go) into $WORK/sgo.
+# It uses the AWS SDK only, so BQ_SDK_ROOT does not change it.
+build_sqs_go() {
+  need go
+  rm -rf "$WORK/sgo" && cp -r "$SQS_SRC/go" "$WORK/sgo"
+  (cd "$WORK/sgo" && GOFLAGS=-mod=mod go build -o "$WORK/sgo/probe-go" .)
+}
+
+# build_sqs_java: the Java consumer (sqs-orders/interop/java) into $WORK/sjava.
+build_sqs_java() {
+  need mvn
+  need java
+  local core="$JAVA_CORE_VERSION" sqs="$JAVA_SQS_VERSION"
+  if [ -n "$BQ_SDK_ROOT" ]; then
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java/pom.xml" install -DskipTests -Djacoco.skip=true
+    mvn -q -B -f "$BQ_SDK_ROOT/babelqueue-java-sqs/pom.xml" install -DskipTests -Djacoco.skip=true
+    core="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java/pom.xml")"
+    sqs="$(mvn_version "$BQ_SDK_ROOT/babelqueue-java-sqs/pom.xml")"
+  fi
+  rm -rf "$WORK/sjava" && cp -r "$SQS_SRC/java" "$WORK/sjava"
+  (
+    cd "$WORK/sjava"
+    mvn -q -B compile "-Dbabelqueue-core.version=$core" "-Dbabelqueue-sqs.version=$sqs"
+    mvn -q -B dependency:build-classpath -Dmdep.outputFile=cp.txt \
+      "-Dbabelqueue-core.version=$core" "-Dbabelqueue-sqs.version=$sqs"
+  )
+}
+
+# build_sqs_node: the Node consumer (sqs-orders/interop/node) into $WORK/snode.
+build_sqs_node() {
+  need node
+  need npm
+  rm -rf "$WORK/snode" && cp -r "$SQS_SRC/node" "$WORK/snode"
+  (
+    cd "$WORK/snode"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      mkdir -p "$WORK/tgz-sqs"
+      (cd "$BQ_SDK_ROOT/babelqueue-node" && { [ -d node_modules ] || npm ci --silent; } \
+        && npm run --silent build && npm pack --silent --pack-destination "$WORK/tgz-sqs" >/dev/null)
+      (cd "$BQ_SDK_ROOT/babelqueue-node-adapters" && { [ -d node_modules ] || npm ci --silent; } \
+        && npm run --silent build -w @babelqueue/sqs \
+        && npm pack --silent -w @babelqueue/sqs --pack-destination "$WORK/tgz-sqs" >/dev/null)
+      npm install --silent --no-audit --no-fund "$WORK"/tgz-sqs/babelqueue-core-*.tgz \
+        "$WORK"/tgz-sqs/babelqueue-sqs-*.tgz @aws-sdk/client-sqs
+    else
+      npm install --silent --no-audit --no-fund
+    fi
+  )
+}
+
+# build_sqs_dotnet: the .NET consumer (sqs-orders/interop/dotnet) into $WORK/sdotnet.
+build_sqs_dotnet() {
+  need dotnet
+  rm -rf "$WORK/sdotnet" && cp -r "$SQS_SRC/dotnet" "$WORK/sdotnet"
+  (
+    cd "$WORK/sdotnet"
+    if [ -n "$BQ_SDK_ROOT" ]; then
+      dotnet build -c Release -nologo -v q -o "$WORK/sdotnet/out" "-p:BqSdkRoot=$BQ_SDK_ROOT"
+    else
+      dotnet build -c Release -nologo -v q -o "$WORK/sdotnet/out"
+    fi
+  )
+}
+
 build_probes() {
   local lang
   for lang in "$@"; do
@@ -284,6 +526,14 @@ probe_exec() {
     pgo) exec "$WORK/pgo/probe-go" "$@" ;;
     pjava) cd "$WORK/pjava" && exec java -cp "target/classes:$(cat cp.txt)" Probe "$@" ;;
     pnode) cd "$WORK/pnode" && exec node probe.mjs "$@" ;;
+    ago) exec "$WORK/ago/probe-go" "$@" ;;
+    ajava) cd "$WORK/ajava" && exec java -cp "target/classes:$(cat cp.txt)" Probe "$@" ;;
+    anode) cd "$WORK/anode" && exec node probe.mjs "$@" ;;
+    adotnet) exec dotnet "$WORK/adotnet/out/Probe.dll" "$@" ;;
+    sgo) exec "$WORK/sgo/probe-go" "$@" ;;
+    sjava) cd "$WORK/sjava" && exec java -cp "target/classes:$(cat cp.txt)" Probe "$@" ;;
+    snode) cd "$WORK/snode" && exec node probe.mjs "$@" ;;
+    sdotnet) exec dotnet "$WORK/sdotnet/out/Probe.dll" "$@" ;;
     laravel) AUTOLOAD="$LARAVEL_AUTOLOAD" exec php "$WORK/laravel/probe.php" "$@" ;;
     *) fail "unknown probe language: $lang" ;;
   esac
@@ -331,6 +581,21 @@ run_probe() {
 }
 
 # ---- waiting and parsing ---------------------------------------------------------------------
+
+# dump_logs <file>...: print probe logs to stderr (call before `fail` to keep the evidence).
+dump_logs() {
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] && { printf '[interop] --- %s ---\n' "$f" >&2; cat "$f" >&2; }
+  done
+  return 0
+}
+
+# stop_probe <pid>: terminate a background probe and reap it.
+stop_probe() {
+  kill "$1" >/dev/null 2>&1 || true
+  wait "$1" 2>/dev/null || true
+}
 
 # wait_line <logfile> <ERE> <timeout-seconds>
 wait_line() {

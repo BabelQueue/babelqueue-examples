@@ -59,8 +59,8 @@ Expected consumer output — a Go program reading messages it never produced. No
 ```bash
 # 3b) consumer — Java   (needs babelqueue-redis 1.0.0 — once it lands on Maven
 #     Central this resolves automatically; before then, build it into ~/.m2 with
-#     `mvn -f ../../../babelqueue-java/pom.xml install -DskipTests` then
-#     `mvn -f ../../../babelqueue-java-redis/pom.xml install -DskipTests`)
+#     `mvn -f ../../../babelqueue-java/pom.xml install -DskipTests -Djacoco.skip=true` then
+#     `mvn -f ../../../babelqueue-java-redis/pom.xml install -DskipTests -Djacoco.skip=true`)
 cd consumer-java
 mvn -q compile exec:java          # REDIS_URL env-configurable (default redis://localhost:6379/0)
 ```
