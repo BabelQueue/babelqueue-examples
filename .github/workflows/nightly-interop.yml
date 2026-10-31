@@ -10,6 +10,17 @@
 # `published: "1"`: they run against the ADR-0037 releases pinned in the probe manifests (babelqueue-pulsar 1.3.0,
 # babelqueue-artemis 1.1.0, babelqueue-sqs 1.4.0, BabelQueue.Artemis 1.2.0, BabelQueue.Sqs 1.4.0, @babelqueue/pulsar 1.4.0,
 # @babelqueue/artemis 1.3.0, @babelqueue/sqs 1.4.0) and fail the job like any other scenario.
+# The `otel` matrix (R1-otel Faz 13) adds the cross-hop OpenTelemetry check for the same 7 brokers: a producer
+# in one SDK and a consumer in another write their spans to files (otel-interop/), and scripts/otel-verify.sh
+# asserts that each consumer span is the child of the producer span of the same message (the W3C traceparent
+# crossed the broker out of band, ADR-0028) and that both carry the ADR-0038 shape with messaging.system = the
+# broker. Pairs: redis python->go, rabbitmq python->node (@babelqueue/rabbitmq), sqs python->go, pulsar
+# java->dotnet, kafka java->go, artemis java->python, azureservicebus python->go. Each job records
+# otel-<broker>.json; scripts/interop-merge.sh folds them into the `otel` cell of every broker in
+# interop-results.json. The probes install the SDK releases pinned in otel-interop/'s manifests. The span shape,
+# `system` and the transports' traceparent wiring exist only from the R1-otel releases, so this job stays red until
+# those are published and the pins are bumped (release phase of the R1-otel plan); until then
+# scripts/otel-verify.sh is run with BQ_SDK_ROOT against the in-repo SDK sources.
 name: nightly-interop
 
 on:
@@ -476,10 +487,71 @@ jobs:
         working-directory: ${{ matrix.compose }}
         run: docker compose logs --tail=100
 
+  # R1-otel Faz 13: cross-hop span parent/child on every broker (see the header). Not part of the 7-broker status
+  # column of interop-results.json; the publish job reports it in the `otel` cell and fails the run when one is red.
+  otel:
+    name: otel (${{ matrix.broker }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - broker: redis
+            compose: redis-orders
+          - broker: rabbitmq
+            compose: rabbitmq-orders
+          - broker: sqs
+            compose: sqs-orders
+          - broker: pulsar
+            compose: pulsar-orders
+          - broker: kafka
+            compose: kafka-orders
+          - broker: artemis
+            compose: artemis-orders
+          - broker: azureservicebus
+            compose: asb-orders
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+      - name: Cross-hop span check
+        env:
+          # The runner is thrown away; keep the broker up so the "Broker logs" step below can read its logs.
+          KEEP_BROKERS: "1"
+          OTEL_RECORD_DIR: ${{ runner.temp }}/otel-result
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/otel-verify.sh ${{ matrix.broker }}
+      - name: Broker logs
+        if: failure()
+        working-directory: ${{ matrix.compose }}
+        run: docker compose logs --tail=100
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: otel-result-${{ matrix.broker }}
+          path: ${{ runner.temp }}/otel-result/otel-${{ matrix.broker }}.json
+          if-no-files-found: warn
+
   publish:
     name: merge results and publish to the nightly release
     runs-on: ubuntu-latest
-    needs: [redis, rabbitmq, sqs, pulsar, kafka, artemis, azureservicebus, r1-scenarios]
+    needs: [redis, rabbitmq, sqs, pulsar, kafka, artemis, azureservicebus, r1-scenarios, otel]
     if: ${{ !cancelled() }}
     timeout-minutes: 10
     permissions:
@@ -491,7 +563,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
-          pattern: result-*
+          pattern: "*result-*"
           path: results
       - name: Merge results
         run: scripts/interop-merge.sh results out
@@ -500,9 +572,9 @@ jobs:
           {
             echo "## Live interop: $(jq -r '[.brokers[] | select(.status == "passing")] | length' out/interop-results.json)/$(jq -r '.brokers | length' out/interop-results.json) passing"
             echo
-            echo "| broker | producer | consumer | status |"
-            echo "| :--- | :--- | :--- | :--- |"
-            jq -r '.brokers[] | "| \(.broker) | \(.producer) | \(.consumer) | \(.status) |"' out/interop-results.json
+            echo "| broker | producer | consumer | status | otel (cross-hop span) |"
+            echo "| :--- | :--- | :--- | :--- | :--- |"
+            jq -r '.brokers[] | "| \(.broker) | \(.producer) | \(.consumer) | \(.status) | \(.otel.status) (\(.otel.producer) -> \(.otel.consumer)) |"' out/interop-results.json
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload to the nightly prerelease
         run: |
@@ -516,6 +588,11 @@ jobs:
           gh release upload nightly out/interop-results.json --repo "$GITHUB_REPOSITORY" --clobber
       - name: Fail unless 7/7 pass
         run: jq -e '[.brokers[] | select(.status != "passing")] | length == 0' out/interop-results.json >/dev/null
+      - name: Fail unless the OTel cross-hop checks pass
+        if: ${{ always() }}
+        run: |
+          jq -e '[.brokers[] | select(.otel.status != "passing")] | length == 0' out/interop-results.json >/dev/null \
+            || { jq -r '.brokers[] | select(.otel.status != "passing") | "otel \(.broker): \(.otel.status)"' out/interop-results.json >&2; exit 1; }
       - name: Fail unless the R1 scenarios pass
         if: ${{ always() }}
         env:

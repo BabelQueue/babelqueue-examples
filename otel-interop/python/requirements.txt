@@ -1,0 +1,7 @@
+# Published pins. The `system` keyword and the semconv span shape need the R1-otel release (ADR-0038);
+# until it is published scripts/otel-verify.sh runs the probes against the in-repo sources (BQ_SDK_ROOT),
+# and the pin below is bumped to the release version. scripts/otel-verify.sh adds the broker extra
+# (redis, amqp, sqs, azureservicebus or artemis) itself.
+babelqueue[otel]>=1.24.0
+opentelemetry-sdk>=1.30.0
+azure-servicebus>=7.12.0

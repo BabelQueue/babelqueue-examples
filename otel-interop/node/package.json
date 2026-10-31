@@ -1,0 +1,13 @@
+{
+  "name": "babelqueue-otel-interop-consumer-node",
+  "private": true,
+  "type": "module",
+  "description": "Node consumer for the OTel interop (RabbitMQ): a CONSUMER span that is a true child of a Python producer span.",
+  "dependencies": {
+    "@babelqueue/core": "^1.13.0",
+    "@babelqueue/rabbitmq": "^1.2.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.0.0",
+    "amqplib": "^0.10.0"
+  }
+}

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.babelqueue.examples</groupId>
+  <artifactId>otel-interop-producer-java</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>BabelQueue example - OTel interop producer (Java: Kafka, Pulsar, Artemis)</name>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Published defaults. The semconv span shape, Tracing.Options.system and the transports'
+         publishWithHeaders need the R1-otel releases (ADR-0038, ADR-0028); until they are published,
+         scripts/otel-verify.sh overrides these with -D after `mvn install` of the in-repo sources
+         (BQ_SDK_ROOT), and the defaults below are bumped to the release versions. -->
+    <babelqueue-core.version>1.14.0</babelqueue-core.version>
+    <babelqueue-kafka.version>1.3.1</babelqueue-kafka.version>
+    <babelqueue-pulsar.version>1.3.1</babelqueue-pulsar.version>
+    <babelqueue-artemis.version>1.1.1</babelqueue-artemis.version>
+    <opentelemetry.version>1.45.0</opentelemetry.version>
+    <artemis-client.version>2.37.0</artemis-client.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-core</artifactId>
+      <version>${babelqueue-core.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-kafka</artifactId>
+      <version>${babelqueue-kafka.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-pulsar</artifactId>
+      <version>${babelqueue-pulsar.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.babelqueue</groupId>
+      <artifactId>babelqueue-artemis</artifactId>
+      <version>${babelqueue-artemis.version}</version>
+    </dependency>
+    <!-- Artemis JMS client: the jakarta.jms API + a CORE-protocol connection. -->
+    <dependency>
+      <groupId>org.apache.activemq</groupId>
+      <artifactId>artemis-jakarta-client</artifactId>
+      <version>${artemis-client.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-api</artifactId>
+      <version>${opentelemetry.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk</artifactId>
+      <version>${opentelemetry.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <mainClass>OtelProduce</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
