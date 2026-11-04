@@ -21,7 +21,7 @@
     <babelqueue-kafka.version>1.4.0</babelqueue-kafka.version>
     <babelqueue-pulsar.version>1.4.0</babelqueue-pulsar.version>
     <babelqueue-artemis.version>1.2.0</babelqueue-artemis.version>
-    <opentelemetry.version>1.45.0</opentelemetry.version>
+    <opentelemetry.version>1.67.0</opentelemetry.version>
     <artemis-client.version>2.37.0</artemis-client.version>
   </properties>
 
