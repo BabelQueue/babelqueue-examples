@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- OTel interop consumer (.NET) for Pulsar.
+       Default: the published NuGet packages. Local SDK mode (pre-release verification):
+         dotnet build -p:BqSdkRoot=/path/to/BabelQueue
+       swaps the packages for ProjectReferences to the in-repo sources. The semconv span shape and
+       Telemetry.Wrap(system:) need the R1-otel releases (ADR-0038), which the versions below
+       target; with BQ_SDK_ROOT, scripts/otel-verify.sh builds with BqSdkRoot instead. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OtelInterop.Consumer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BqSdkRoot)' == ''">
+    <PackageReference Include="BabelQueue.Core" Version="1.14.0" />
+    <PackageReference Include="BabelQueue.Pulsar" Version="1.4.0" />
+  </ItemGroup>
+
+  <!-- BqPulsarProject: the transport project to build against the in-repo core. The transport's own
+       csproj references the published BabelQueue.Core package, so scripts/otel-verify.sh passes a copy of
+       it whose Core reference is a ProjectReference (the SDK repository is never written). -->
+  <PropertyGroup Condition="'$(BqSdkRoot)' != '' And '$(BqPulsarProject)' == ''">
+    <BqPulsarProject>$(BqSdkRoot)/babelqueue-dotnet-pulsar/src/BabelQueue.Pulsar/BabelQueue.Pulsar.csproj</BqPulsarProject>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BqSdkRoot)' != ''">
+    <ProjectReference Include="$(BqSdkRoot)/babelqueue-dotnet/src/BabelQueue.Core/BabelQueue.Core.csproj" />
+    <ProjectReference Include="$(BqPulsarProject)" />
+  </ItemGroup>
+
+</Project>
