@@ -43,8 +43,8 @@ scripts/otel-verify.sh --check kafka producer.jsonl consumer.jsonl 3 orders   # 
 
 By default the probes install the **published** SDK releases pinned in their manifests
 (`python/requirements.txt`, `go/go.mod`, `node/package.json`, `java/pom.xml`, `dotnet/Probe.csproj`). The
-`system` option and the semconv span shape exist only from the R1-otel releases, so until those are published
-(the pins are bumped when they are) run against the in-repo SDK sources of a BabelQueue checkout:
+`system` option and the semconv span shape exist only from the R1-otel releases, which the pins target. To run
+against the in-repo SDK sources of a BabelQueue checkout instead:
 
 ```bash
 BQ_SDK_ROOT=/path/to/BabelQueue scripts/otel-verify.sh redis

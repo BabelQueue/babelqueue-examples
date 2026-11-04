@@ -4,9 +4,8 @@
        Default: the published NuGet packages. Local SDK mode (pre-release verification):
          dotnet build -p:BqSdkRoot=/path/to/BabelQueue
        swaps the packages for ProjectReferences to the in-repo sources. The semconv span shape and
-       Telemetry.Wrap(system:) need the R1-otel releases (ADR-0038); until they are published,
-       scripts/otel-verify.sh builds with BqSdkRoot, and the versions below are bumped to the
-       release versions. -->
+       Telemetry.Wrap(system:) need the R1-otel releases (ADR-0038), which the versions below
+       target; with BQ_SDK_ROOT, scripts/otel-verify.sh builds with BqSdkRoot instead. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
@@ -16,8 +15,8 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(BqSdkRoot)' == ''">
-    <PackageReference Include="BabelQueue.Core" Version="1.13.0" />
-    <PackageReference Include="BabelQueue.Pulsar" Version="1.3.0" />
+    <PackageReference Include="BabelQueue.Core" Version="1.14.0" />
+    <PackageReference Include="BabelQueue.Pulsar" Version="1.4.0" />
   </ItemGroup>
 
   <!-- BqPulsarProject: the transport project to build against the in-repo core. The transport's own

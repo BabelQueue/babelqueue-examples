@@ -18,9 +18,9 @@
 # java->dotnet, kafka java->go, artemis java->python, azureservicebus python->go. Each job records
 # otel-<broker>.json; scripts/interop-merge.sh folds them into the `otel` cell of every broker in
 # interop-results.json. The probes install the SDK releases pinned in otel-interop/'s manifests. The span shape,
-# `system` and the transports' traceparent wiring exist only from the R1-otel releases, so this job stays red until
-# those are published and the pins are bumped (release phase of the R1-otel plan); until then
-# scripts/otel-verify.sh is run with BQ_SDK_ROOT against the in-repo SDK sources.
+# `system` and the transports' traceparent wiring exist only from the R1-otel releases (Go v1.19.0 / otel v0.4.0,
+# PyPI 1.25.0, npm core 1.14.0, Maven core 1.15.0, NuGet Core 1.14.0 and their transports), which the pins
+# now target. scripts/otel-verify.sh with BQ_SDK_ROOT still runs the same check against in-repo SDK sources.
 name: nightly-interop
 
 on:
