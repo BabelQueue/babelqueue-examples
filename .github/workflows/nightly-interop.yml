@@ -51,7 +51,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: false
       - name: Start Redis
         working-directory: redis-orders
@@ -136,7 +136,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: false
       - name: Start LocalStack (SQS)
         run: |
@@ -251,7 +251,7 @@ jobs:
           cache-dependency-path: kafka-orders/producer-java/pom.xml
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: false
       - name: Start Redpanda and create the topic
         working-directory: kafka-orders
@@ -354,7 +354,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: false
       - name: Start the Service Bus emulator
         working-directory: asb-orders
@@ -459,7 +459,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: false
       - uses: actions/setup-node@v7
         with:
@@ -518,7 +518,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: false
       - uses: actions/setup-node@v7
         with:
