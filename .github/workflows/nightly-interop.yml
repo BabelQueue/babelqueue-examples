@@ -35,6 +35,16 @@ concurrency:
 permissions:
   contents: read
 
+# Up to ~25 jobs resolve from Maven Central at the same minute and Central answers 429 (the R1/otel jobs
+# failed on maven-resources-plugin that way). Maven 3.9 reads MAVEN_ARGS on every `mvn` call, including the
+# ones inside scripts/: retry 429/503 longer than the resolver default (3 tries, 5 s). The per-job ~/.m2
+# caches below keep most nights from touching Central at all.
+env:
+  MAVEN_ARGS: >-
+    -Daether.connector.http.retryHandler.count=8
+    -Daether.connector.http.retryHandler.interval=10000
+    -Daether.connector.http.retryHandler.serviceUnavailable=429,503
+
 defaults:
   run:
     shell: bash
@@ -468,6 +478,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # One ~/.m2 cache per scenario, saved every run (run_id key) and restored from the newest by prefix: the
+      # published versions arrive as -D flags, not pom edits, so a pom-hash key would never refresh.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-r1-${{ matrix.scenario }}-${{ github.run_id }}
+          restore-keys: m2-r1-${{ matrix.scenario }}-
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
@@ -527,6 +544,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-otel-${{ matrix.broker }}-${{ github.run_id }}
+          restore-keys: m2-otel-${{ matrix.broker }}-
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
