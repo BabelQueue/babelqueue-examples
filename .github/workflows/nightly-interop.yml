@@ -485,6 +485,13 @@ jobs:
           path: ~/.m2/repository
           key: m2-r1-${{ matrix.scenario }}-${{ github.run_id }}
           restore-keys: m2-r1-${{ matrix.scenario }}-
+      # Same for Composer (the Laravel probe): its dist zipballs come from api.github.com, which answers 5xx
+      # often enough to fail a night.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-r1-${{ matrix.scenario }}-${{ github.run_id }}
+          restore-keys: composer-r1-${{ matrix.scenario }}-
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
